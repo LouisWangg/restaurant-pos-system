@@ -9,7 +9,7 @@ import TableGrid from '../components/TableGrid';
 import QuickStats from '../components/QuickStats';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import api from '../api';
+import tableService from '../services/tableService';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -21,21 +21,21 @@ const Dashboard = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'error' });
   const handleCloseSnackbar = () => setSnackbar(prev => ({ ...prev, open: false }));
 
-  useEffect(() => {
-    const fetchTables = async () => {
-      try {
-        const response = await api.get('/api/tables');
-        if (response.data.status === 'success') {
-          setTables(response.data.data);
-        }
-      } catch (err) {
-        console.error("Failed to fetch tables:", err);
-        setError("Gagal memuat data meja");
-      } finally {
-        setLoading(false);
+  const fetchTables = async () => {
+    try {
+      const response = await tableService.getTables();
+      if (response.status === 'success') {
+        setTables(response.data);
       }
-    };
+    } catch (err) {
+      console.error("Failed to fetch tables:", err);
+      setError("Gagal memuat data meja");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchTables();
   }, []);
 
@@ -135,7 +135,7 @@ const Dashboard = () => {
                   <Typography color="error">{error}</Typography>
                 </Box>
               ) : (
-                <TableGrid tables={tables} />
+                <TableGrid tables={tables} onTableUpdate={fetchTables} />
               )}
             </Box>
             <QuickStats stats={getStats()} />

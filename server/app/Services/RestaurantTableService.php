@@ -13,4 +13,14 @@ class RestaurantTableService
     {
         return RestaurantTable::orderBy('table_number', 'asc')->get();
     }
+
+    /**
+     * Memperbarui status meja
+     */
+    public function updateStatus(RestaurantTable $table, string $status)
+    {
+        $table->status = $status;
+        $table->save();
+        return $table;
+    }
 }

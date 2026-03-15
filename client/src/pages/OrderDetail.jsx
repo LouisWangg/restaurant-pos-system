@@ -23,10 +23,10 @@ import {
   Print,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import api from '../api';
+import foodService from '../services/foodService';
+import tableService from '../services/tableService';
 
 const FOOD_TYPES = [
-  { value: 'all', label: 'All' },
   { value: 'appetizer', label: 'Appetizers' },
   { value: 'main_course', label: 'Main Course' },
   { value: 'dessert', label: 'Desserts' },
@@ -40,7 +40,7 @@ const OrderDetail = () => {
 
   const [foods, setFoods] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('appetizer');
   const [searchQuery, setSearchQuery] = useState('');
   const [orderItems, setOrderItems] = useState([]); // { food, quantity }
   const [tableInfo, setTableInfo] = useState(null);
@@ -52,12 +52,12 @@ const OrderDetail = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [foodRes, tableRes] = await Promise.all([
-          api.get('/api/foods'),
-          api.get(`/api/tables/${tableId}`),
+        const [foodsData, tableData] = await Promise.all([
+          foodService.getFoods(),
+          tableService.getTableById(tableId),
         ]);
-        setFoods(foodRes.data);
-        setTableInfo(tableRes.data?.data || tableRes.data);
+        setFoods(foodsData);
+        setTableInfo(tableData.data || tableData);
       } catch (err) {
         console.error('Failed to load order data:', err);
       } finally {
@@ -68,7 +68,7 @@ const OrderDetail = () => {
   }, [tableId]);
 
   const filteredFoods = foods.filter((food) => {
-    const matchesTab = activeTab === 'all' || food.type === activeTab;
+    const matchesTab = food.type === activeTab;
     const matchesSearch =
       food.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       food.description?.toLowerCase().includes(searchQuery.toLowerCase());

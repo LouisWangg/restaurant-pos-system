@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../api';
+import authService from '../services/authService';
 
 const AuthContext = createContext();
 
@@ -9,8 +9,8 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuth = async () => {
     try {
-      const response = await api.get('/api/user');
-      setUser(response.data);
+      const data = await authService.getUser();
+      setUser(data);
     } catch (error) {
       setUser(null);
     } finally {
@@ -23,15 +23,13 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (credentials) => {
-    await api.get('/sanctum/csrf-cookie');
-    await api.post('/api/login', credentials);
+    await authService.login(credentials);
     await checkAuth();
   };
 
   const logout = async () => {
     try {
-      await api.get('/sanctum/csrf-cookie');
-      await api.post('/api/logout');
+      await authService.logout();
     } catch (error) {
       console.error('Logout error:', error);
     } finally {

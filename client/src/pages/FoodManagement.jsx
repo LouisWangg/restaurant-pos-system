@@ -43,7 +43,7 @@ import {
   ListAlt as ListAltIcon
 } from '@mui/icons-material';
 import Navbar from '../components/Navbar';
-import api from '../api';
+import foodService from '../services/foodService';
 
 const FOOD_TYPES = [
   { value: 'all', label: 'All' },
@@ -104,8 +104,8 @@ const FoodManagement = () => {
   const fetchFoods = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/api/foods');
-      setFoods(response.data);
+      const data = await foodService.getFoods();
+      setFoods(data);
       setError(null);
     } catch (err) {
       console.error('Failed to fetch foods:', err);
@@ -186,10 +186,10 @@ const FoodManagement = () => {
 
     try {
       if (currentFood) {
-        await api.put(`/api/foods/${currentFood.id}`, formData);
+        await foodService.updateFood(currentFood.id, formData);
         showSnackbar('Menu berhasil diperbarui!');
       } else {
-        await api.post('/api/foods', formData);
+        await foodService.createFood(formData);
         showSnackbar('Menu baru berhasil ditambahkan!');
       }
       handleCloseModal();
@@ -213,7 +213,7 @@ const FoodManagement = () => {
     if (!foodToDelete) return;
 
     try {
-      await api.delete(`/api/foods/${foodToDelete.id}`);
+      await foodService.deleteFood(foodToDelete.id);
       setOpenDeleteModal(false);
       setFoodToDelete(null);
       fetchFoods();
