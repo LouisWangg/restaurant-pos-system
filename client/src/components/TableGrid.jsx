@@ -8,45 +8,50 @@ const tables = Array.from({ length: 24 }, (_, i) => ({
 
 const getStatusColor = (status) => {
   switch (status) {
-    case 'Available': return '#64748b';
-    case 'Occupied': return '#1e293b';
-    case 'Reserved': return '#94a3b8';
-    case 'Inactive': return '#cbd5e1';
-    default: return '#64748b';
+    case 'Available': return '#22c55e';
+    case 'Occupied': return '#ef4444';
+    case 'Reserved': return '#f59e0b';
+    case 'Inactive': return '#64748b';
+    default: return '#22c55e';
   }
 };
 
 const TableGrid = () => {
   return (
-    <Box sx={{ flexGrow: 1 }}>
-      <Grid container spacing={2}>
-        {tables.map((table) => (
-          <Grid item xs={3} sm={2} key={table.id}>
-            <Paper
-              elevation={0}
-              sx={{
-                height: 100,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                bgcolor: getStatusColor(table.status),
-                color: 'white',
-                borderRadius: 2,
-                cursor: 'pointer',
-                transition: 'transform 0.2s',
-                '&:hover': {
-                  transform: 'scale(1.05)',
-                  opacity: 0.9,
-                },
-              }}
-            >
-              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                {table.id}
-              </Typography>
-            </Paper>
-          </Grid>
-        ))}
-      </Grid>
+    <Box 
+      sx={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(6, 1fr)', 
+        gap: 2,
+        width: '100%'
+      }}
+    >
+      {tables.map((table) => (
+        <Paper
+          key={table.id}
+          elevation={0}
+          sx={{
+            aspectRatio: '1.6 / 1',
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: getStatusColor(table.status),
+            color: 'white',
+            borderRadius: 2,
+            cursor: 'pointer',
+            transition: 'transform 0.2s',
+            '&:hover': {
+              transform: 'scale(1.05)',
+              opacity: 0.9,
+            },
+          }}
+        >
+          <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+            {table.id}
+          </Typography>
+        </Paper>
+      ))}
     </Box>
   );
 };

@@ -15,11 +15,25 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // 3 Kasir
+        User::factory(3)->create([
+            'role' => 'Kasir',
+        ]);
 
+        // 7 Pelayan
+        User::factory(7)->create([
+            'role' => 'Pelayan',
+        ]);
+
+        // Optional: Satu user spesifik untuk tes login
         User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+            'name' => 'Admin POS',
+            'email' => 'admin@pos.com',
+            'role' => 'Kasir',
+        ]);
+
+        $this->call([
+            RestaurantTableSeeder::class,
         ]);
     }
 }

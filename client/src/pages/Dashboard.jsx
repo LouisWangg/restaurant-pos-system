@@ -25,14 +25,28 @@ const Dashboard = () => {
             exclusive
             onChange={(e, next) => next && setView(next)}
             size="small"
+            sx={{ 
+              bgcolor: 'white', 
+              '& .MuiToggleButton-root': { 
+                px: 3, 
+                py: 1,
+                border: '1px solid',
+                borderColor: 'divider',
+                '&.Mui-selected': {
+                  bgcolor: 'slate.100',
+                  color: 'primary.main',
+                  fontWeight: 'bold'
+                }
+              } 
+            }}
           >
-            <ToggleButton value="floor" sx={{ px: 2, gap: 1 }}>
+            <ToggleButton value="floor" sx={{ gap: 1 }}>
               <GridViewIcon fontSize="small" /> Floor Plan
             </ToggleButton>
-            <ToggleButton value="food" sx={{ px: 2, gap: 1 }}>
+            <ToggleButton value="food" sx={{ gap: 1 }}>
               <FastFoodIcon fontSize="small" /> Master Food
             </ToggleButton>
-            <ToggleButton value="order" sx={{ px: 2, gap: 1 }}>
+            <ToggleButton value="order" sx={{ gap: 1 }}>
               <ListAltIcon fontSize="small" /> Order List
             </ToggleButton>
           </ToggleButtonGroup>

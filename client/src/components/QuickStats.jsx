@@ -2,10 +2,10 @@ import React from 'react';
 import { Box, Paper, Typography, Stack } from '@mui/material';
 
 const stats = [
-  { label: 'Available Tables', count: 12, color: '#64748b' },
-  { label: 'Occupied Tables', count: 8, color: '#1e293b' },
-  { label: 'Reserved Tables', count: 3, color: '#94a3b8' },
-  { label: 'Inactive Tables', count: 2, color: '#cbd5e1' },
+  { label: 'Available Tables', count: 12, color: '#22c55e' },
+  { label: 'Occupied Tables', count: 8, color: '#ef4444' },
+  { label: 'Reserved Tables', count: 3, color: '#f59e0b' },
+  { label: 'Inactive Tables', count: 2, color: '#64748b' },
 ];
 
 const QuickStats = () => {
