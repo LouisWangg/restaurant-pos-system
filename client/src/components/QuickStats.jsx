@@ -8,7 +8,7 @@ const stats = [
   { label: 'Inactive Tables', count: 2, color: '#64748b' },
 ];
 
-const QuickStats = () => {
+const QuickStats = ({ stats }) => {
   return (
     <Box sx={{ width: 280 }}>
       <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 2 }}>

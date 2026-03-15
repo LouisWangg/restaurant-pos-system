@@ -1,16 +1,21 @@
-import { TextField, Button, Box, Link, Typography, Alert, Checkbox, FormControlLabel } from '@mui/material';
-import { useState } from "react";
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { TextField, Button, Box, Alert, Checkbox, FormControlLabel, InputAdornment, IconButton } from '@mui/material';
+import { useState, useEffect } from "react";
+import { useNavigate } from 'react-router-dom';
+import { Visibility, VisibilityOff } from '@mui/icons-material';
 import AuthLayout from '../components/AuthLayout';
-import api from '../api';
+import { useAuth } from '../context/AuthContext';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [errors, setErrors] = useState({});
   const [status, setStatus] = useState(null);
   const navigate = useNavigate();
+  const { login } = useAuth();
+
+  const handleClickShowPassword = () => setShowPassword((show) => !show);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,18 +23,14 @@ const Login = () => {
     setStatus(null);
 
     try {
-      // Get CSRF cookie first
-      await api.get('/sanctum/csrf-cookie');
-
-      // Attempt login
-      await api.post('/login', { email, password, remember });
-
-      navigate('/dashboard'); // Redirect to dashboard after login
+      await login({ email, password, remember });
+      navigate('/dashboard');
     } catch (error) {
       if (error.response?.status === 422) {
         setErrors(error.response.data.errors);
       } else {
         setStatus('Something went wrong. Please try again.');
+        console.error(error);
       }
     }
   };
@@ -45,6 +46,7 @@ const Login = () => {
         <TextField
           margin="normal"
           required
+          fullWidth
           id="email"
           label="Email Address"
           name="email"
@@ -58,15 +60,29 @@ const Login = () => {
         <TextField
           margin="normal"
           required
+          fullWidth
           name="password"
           label="Password"
-          type="password"
+          type={showPassword ? 'text' : 'password'}
           id="password"
           autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           error={!!errors.password}
           helperText={errors.password?.[0]}
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  aria-label="toggle password visibility"
+                  onClick={handleClickShowPassword}
+                  edge="end"
+                >
+                  {showPassword ? <VisibilityOff /> : <Visibility />}
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
         />
 
         <FormControlLabel
