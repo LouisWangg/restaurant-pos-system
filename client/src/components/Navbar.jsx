@@ -21,7 +21,7 @@ const Navbar = () => {
   const handleLogout = async () => {
     handleClose();
     await logout();
-    navigate('/login', { replace: true });
+    navigate('/dashboard', { replace: true });
   };
 
   // Fungsi untuk mendapatkan inisial dari nama
@@ -65,12 +65,12 @@ const Navbar = () => {
         {!loading && (
           user ? (
             <>
-              <Box 
+              <Box
                 onClick={handleClick}
-                sx={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: 2, 
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
                   cursor: 'pointer',
                   '&:hover': { opacity: 0.8 }
                 }}
@@ -128,10 +128,10 @@ const Navbar = () => {
               </Menu>
             </>
           ) : (
-            <Button 
-              component={RouterLink} 
-              to="/login" 
-              variant="contained" 
+            <Button
+              component={RouterLink}
+              to="/login"
+              variant="contained"
               size="small"
               sx={{ borderRadius: 2 }}
             >

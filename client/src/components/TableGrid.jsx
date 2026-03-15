@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Paper, Typography } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
 
 const getStatusColor = (status) => {
   switch (status) {
@@ -12,11 +13,19 @@ const getStatusColor = (status) => {
 };
 
 const TableGrid = ({ tables }) => {
+  const navigate = useNavigate();
+
+  const handleTableClick = (table) => {
+    if (table.status === 'available') {
+      navigate(`/orders/${table.id}`);
+    }
+  };
+
   return (
-    <Box 
-      sx={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(6, 1fr)', 
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(6, 1fr)',
         gap: 2,
         width: '100%'
       }}
@@ -25,6 +34,7 @@ const TableGrid = ({ tables }) => {
         <Paper
           key={table.id}
           elevation={0}
+          onClick={() => handleTableClick(table)}
           sx={{
             aspectRatio: '1.6 / 1',
             width: '100%',
@@ -34,12 +44,12 @@ const TableGrid = ({ tables }) => {
             bgcolor: getStatusColor(table.status),
             color: 'white',
             borderRadius: 2,
-            cursor: 'pointer',
-            transition: 'transform 0.2s',
-            '&:hover': {
+            cursor: table.status === 'available' ? 'pointer' : 'default',
+            transition: 'transform 0.2s, opacity 0.2s',
+            '&:hover': table.status === 'available' ? {
               transform: 'scale(1.05)',
               opacity: 0.9,
-            },
+            } : {},
           }}
         >
           <Typography variant="h6" sx={{ fontWeight: 'bold' }}>

@@ -13,7 +13,6 @@ class RestaurantTableSeeder extends Seeder
      */
     public function run(): void
     {
-        //
         for ($i = 1; $i <= 24; $i++) {
             RestaurantTable::create([
                 'table_number' => $i,

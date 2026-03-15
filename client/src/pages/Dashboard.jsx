@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Container, Typography, ToggleButton, ToggleButtonGroup, Stack, CircularProgress } from '@mui/material';
+import { Box, Container, Typography, ToggleButton, ToggleButtonGroup, Stack, CircularProgress, Snackbar, Alert } from '@mui/material';
 import GridViewIcon from '@mui/icons-material/GridView';
 import FastFoodIcon from '@mui/icons-material/FastFood';
 import ListAltIcon from '@mui/icons-material/ListAlt';
@@ -7,13 +7,19 @@ import Navbar from '../components/Navbar';
 import TableStatus from '../components/TableStatus';
 import TableGrid from '../components/TableGrid';
 import QuickStats from '../components/QuickStats';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import api from '../api';
 
 const Dashboard = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [view, setView] = React.useState('floor');
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'error' });
+  const handleCloseSnackbar = () => setSnackbar(prev => ({ ...prev, open: false }));
 
   useEffect(() => {
     const fetchTables = async () => {
@@ -32,6 +38,24 @@ const Dashboard = () => {
 
     fetchTables();
   }, []);
+
+  const handleViewChange = (event, next) => {
+    if (!next) return;
+
+    if (next === 'food') {
+      if (user?.role !== 'Pelayan') {
+        setSnackbar({
+          open: true,
+          message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
+          severity: 'error',
+        });
+        return;
+      }
+      navigate('/foods');
+    } else {
+      setView(next);
+    }
+  };
 
   // Hitung statistik berdasarkan data meja
   const getStats = () => {
@@ -68,7 +92,7 @@ const Dashboard = () => {
           <ToggleButtonGroup
             value={view}
             exclusive
-            onChange={(e, next) => next && setView(next)}
+            onChange={handleViewChange}
             size="small"
             sx={{ 
               bgcolor: 'white', 
@@ -118,6 +142,24 @@ const Dashboard = () => {
           </Box>
         </Stack>
       </Container>
+
+      {/* Access Denied Toast */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{ top: { xs: 80, sm: 105 } }}
+      >
+        <Alert
+          onClose={handleCloseSnackbar}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ minWidth: 250, borderRadius: 2, fontWeight: 600 }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };
