@@ -35,6 +35,10 @@ class TableController extends Controller
      */
     public function show(RestaurantTable $restaurantTable): JsonResponse
     {
+        if ($restaurantTable->status === 'occupied') {
+            $restaurantTable->load('activeOrder.items.food');
+        }
+
         return response()->json([
             'status' => 'success',
             'data' => $restaurantTable

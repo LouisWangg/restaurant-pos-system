@@ -7,12 +7,13 @@ import Navbar from '../components/Navbar';
 import TableStatus from '../components/TableStatus';
 import TableGrid from '../components/TableGrid';
 import QuickStats from '../components/QuickStats';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import tableService from '../services/tableService';
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [view, setView] = React.useState('floor');
   const [tables, setTables] = useState([]);
@@ -37,7 +38,14 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchTables();
-  }, []);
+
+    // Handle snackbar from navigation state
+    if (location.state?.snackbar) {
+      setSnackbar(location.state.snackbar);
+      // Clear navigation state to prevent re-triggering on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   const handleViewChange = (event, next) => {
     if (!next) return;
@@ -146,7 +154,7 @@ const Dashboard = () => {
       {/* Access Denied Snackbar */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={5000}
+        autoHideDuration={4000}
         onClose={handleCloseSnackbar}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         sx={{ top: { xs: 80, sm: 105 } }}

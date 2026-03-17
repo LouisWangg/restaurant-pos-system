@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\TableController;
 use App\Http\Controllers\Api\FoodController;
+use App\Http\Controllers\Api\OrderController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -21,6 +22,7 @@ Route::middleware(['auth:sanctum', 'role:Pelayan'])->group(function () {
     Route::put('/foods/{food}', [FoodController::class, 'update']);
     Route::patch('/foods/{food}', [FoodController::class, 'update']);
     Route::delete('/foods/{food}', [FoodController::class, 'destroy']);
+    Route::post('/orders', [OrderController::class, 'store']);
 });
 
 require __DIR__.'/auth.php';

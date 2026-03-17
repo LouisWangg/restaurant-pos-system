@@ -10,4 +10,14 @@ class RestaurantTable extends Model
         'table_number',
         'status'
     ];
+
+    public function orders()
+    {
+        return $this->hasMany(Order::class, 'table_id');
+    }
+
+    public function activeOrder()
+    {
+        return $this->hasOne(Order::class, 'table_id')->where('status', 'open');
+    }
 }

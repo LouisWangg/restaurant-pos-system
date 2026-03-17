@@ -17,15 +17,9 @@ return new class extends Migration
             $table->foreignId('food_id')->constrained('foods');
 
             $table->integer('qty');
-            $table->integer('price');
-            $table->text('note')->nullable();
-
-            $table->enum('status', [
-                'draft',
-                'sent_to_kitchen',
-                'served',
-                'cancelled'
-            ])->default('draft');
+            $table->decimal('price', 15, 2);
+            $table->string('note')->nullable();
+            $table->enum('status', ['draft', 'confirmed', 'cancelled'])->default('draft');
 
             $table->timestamps();
         });

@@ -15,6 +15,13 @@ import {
   Menu,
   MenuItem,
   ListItemIcon,
+  Snackbar,
+  Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Chip
 } from '@mui/material';
 import {
   ArrowBack,
@@ -26,10 +33,12 @@ import {
   SaveAlt,
   Print,
   Logout,
+  EditNote
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import foodService from '../services/foodService';
 import tableService from '../services/tableService';
+import orderService from '../services/orderService';
 import { useAuth } from '../context/AuthContext';
 
 const FOOD_TYPES = [
@@ -68,6 +77,12 @@ const OrderDetail = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [orderItems, setOrderItems] = useState([]); // { food, quantity }
   const [tableInfo, setTableInfo] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [noteModal, setNoteModal] = useState({ open: false, foodId: null, note: '' });
+
+  const handleCloseSnackbar = () => setSnackbar(prev => ({ ...prev, open: false }));
+
 
   const today = new Date().toLocaleDateString('id-ID', {
     day: 'numeric', month: 'long', year: 'numeric',
@@ -80,8 +95,35 @@ const OrderDetail = () => {
           foodService.getFoods(),
           tableService.getTableById(tableId),
         ]);
+
+        const tbl = tableData.data || tableData;
+
+        // Role-based Access Control for Kasir
+        if (user?.role === 'Kasir' && tbl.status !== 'occupied') {
+          setSnackbar({
+            open: true,
+            message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
+            severity: 'error'
+          });
+          setTimeout(() => {
+            navigate('/dashboard');
+          }, 4000); // 4 seconds delay to read the snackbar
+          return;
+        }
+
         setFoods(foodsData);
-        setTableInfo(tableData.data || tableData);
+        setTableInfo(tbl);
+
+        // If table is occupied and has an active order, populate orderItems
+        if (tbl.status === 'occupied' && tbl.active_order) {
+          const existingItems = tbl.active_order.items.map(item => ({
+            food: item.food,
+            quantity: item.qty,
+            note: item.note || '',
+            status: item.status // Track item status (draft/confirmed)
+          }));
+          setOrderItems(existingItems);
+        }
       } catch (err) {
         console.error('Failed to load order data:', err);
       } finally {
@@ -89,7 +131,7 @@ const OrderDetail = () => {
       }
     };
     fetchData();
-  }, [tableId]);
+  }, [tableId, user, navigate]);
 
   const filteredFoods = foods.filter((food) => {
     const matchesTab = food.type === activeTab;
@@ -101,15 +143,15 @@ const OrderDetail = () => {
 
   const handleAddItem = (food) => {
     setOrderItems((prev) => {
-      const existing = prev.find((item) => item.food.id === food.id);
-      if (existing) {
+      const existingDraft = prev.find((item) => item.food.id === food.id && item.status === 'draft');
+      if (existingDraft) {
         return prev.map((item) =>
-          item.food.id === food.id
+          (item.food.id === food.id && item.status === 'draft')
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
-      return [...prev, { food, quantity: 1 }];
+      return [...prev, { food, quantity: 1, note: '', status: 'draft' }];
     });
   };
 
@@ -117,17 +159,61 @@ const OrderDetail = () => {
     setOrderItems((prev) =>
       prev
         .map((item) =>
-          item.food.id === foodId
+          (item.food.id === foodId && item.status === 'draft')
             ? { ...item, quantity: item.quantity + delta }
             : item
         )
-        .filter((item) => item.quantity > 0)
+        .filter((item) => item.quantity > 0 || item.status !== 'draft')
     );
   };
 
   const handleRemoveItem = (foodId) => {
-    setOrderItems((prev) => prev.filter((item) => item.food.id !== foodId));
+    setOrderItems((prev) => prev.filter((item) => !(item.food.id === foodId && item.status === 'draft')));
   };
+
+  const handleOrderAction = async (itemStatus) => {
+    if (orderItems.length === 0) return;
+
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        table_id: tableId,
+        item_status: itemStatus,
+        items: orderItems.map(item => ({
+          food_id: item.food.id,
+          qty: item.quantity,
+          price: item.food.price,
+          note: item.note || null
+        }))
+      };
+
+      await orderService.createOrder(payload);
+
+      const successMessage = `Pesanan berhasil ${itemStatus === 'confirmed' ? 'dikonfirmasi' : 'disimpan sebagai draft'}!`;
+
+      // Navigate to dashboard immediately and pass snackbar info via state
+      navigate('/dashboard', {
+        state: {
+          snackbar: {
+            open: true,
+            message: successMessage,
+            severity: 'success'
+          }
+        }
+      });
+
+    } catch (err) {
+      console.error('Failed to process order:', err);
+      setSnackbar({
+        open: true,
+        message: 'Gagal memproses pesanan. Silakan coba lagi.',
+        severity: 'error'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
 
   const formatCurrency = (amount) =>
     new Intl.NumberFormat('id-ID', {
@@ -140,6 +226,17 @@ const OrderDetail = () => {
     (sum, item) => sum + item.food.price * item.quantity,
     0
   );
+
+  const handleOpenNoteModal = (foodId, currentNote) => {
+    setNoteModal({ open: true, foodId, note: currentNote || '' });
+  };
+
+  const handleSaveNote = () => {
+    setOrderItems(prev => prev.map(item =>
+      item.food.id === noteModal.foodId ? { ...item, note: noteModal.note } : item
+    ));
+    setNoteModal({ open: false, foodId: null, note: '' });
+  };
 
   if (loading) {
     return (
@@ -172,7 +269,9 @@ const OrderDetail = () => {
               Table {tableInfo?.table_number || tableId}
             </Typography>
             <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600, fontSize: '0.75rem' }}>
-              New Order
+              {tableInfo?.status === 'available' && "New Order"}
+              {tableInfo?.status === 'occupied' && (tableInfo.active_order?.order_number || "Active Order")}
+              {tableInfo?.status === 'reserved' && "Reserved"}
             </Typography>
           </Box>
         </Box>
@@ -374,31 +473,63 @@ const OrderDetail = () => {
                 </Typography>
               </Box>
             ) : (
-              orderItems.map(({ food, quantity }) => (
-                <Box key={food.id} sx={{ mb: 2.5 }}>
+              orderItems.map(({ food, quantity, note, status }, index) => (
+                <Box key={`${food.id}-${status}-${index}`} sx={{ mb: 2.5 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
-                      {food.name}
-                    </Typography>
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                        {food.name}
+                        {status === 'confirmed' && 
+                          <Box component="span" sx={{ fontSize: '0.75rem', ml: 1, color: '#64748b', fontWeight: 400 }}>
+                            (Confirmed)
+                          </Box>
+                        }
+                      </Typography>
+                      {note && (
+                        <Typography variant="caption" sx={{ color: '#64748b', fontStyle: 'italic', display: 'block' }}>
+                          Note: {note}
+                        </Typography>
+                      )}
+                    </Box>
                     <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
                       {formatCurrency(food.price * quantity)}
                     </Typography>
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <IconButton size="small" onClick={() => handleUpdateQty(food.id, -1)}
-                      sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}>
+                    <IconButton 
+                      size="small" 
+                      onClick={() => handleUpdateQty(food.id, -1)}
+                      disabled={status !== 'draft'}
+                      sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
+                    >
                       <Remove sx={{ fontSize: 14 }} />
                     </IconButton>
                     <Typography sx={{ px: 1, minWidth: 24, textAlign: 'center', fontWeight: 600, fontSize: '0.875rem' }}>
                       {quantity}
                     </Typography>
-                    <IconButton size="small" onClick={() => handleUpdateQty(food.id, 1)}
-                      sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}>
+                    <IconButton 
+                      size="small" 
+                      onClick={() => handleUpdateQty(food.id, 1)}
+                      disabled={status !== 'draft'}
+                      sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
+                    >
                       <Add sx={{ fontSize: 14 }} />
                     </IconButton>
                     <Box sx={{ flex: 1 }} />
-                    <IconButton size="small" onClick={() => handleRemoveItem(food.id)}
-                      sx={{ color: '#94a3b8', '&:hover': { color: '#ef4444' } }}>
+                    <IconButton 
+                      size="small" 
+                      onClick={() => handleOpenNoteModal(food.id, note)}
+                      disabled={status !== 'draft'}
+                      sx={{ color: '#94a3b8', '&:hover': { color: '#6366f1' }, mr: 0.5 }}
+                    >
+                      <EditNote sx={{ fontSize: 20 }} />
+                    </IconButton>
+                    <IconButton 
+                      size="small" 
+                      onClick={() => handleRemoveItem(food.id)}
+                      disabled={status !== 'draft'}
+                      sx={{ color: '#94a3b8', '&:hover': { color: '#ef4444' } }}
+                    >
                       <Delete sx={{ fontSize: 16 }} />
                     </IconButton>
                   </Box>
@@ -418,61 +549,158 @@ const OrderDetail = () => {
           </Box>
 
           {/* Action Buttons */}
-          <Button
-            fullWidth
-            variant="contained"
-            startIcon={<Send sx={{ fontSize: 16 }} />}
-            disabled={orderItems.length === 0}
-            sx={{
-              mb: 1.5,
-              py: 1.5,
-              borderRadius: 2,
-              bgcolor: '#1e293b',
-              fontWeight: 700,
-              textTransform: 'none',
-              fontSize: '0.95rem',
-              '&:hover': { bgcolor: '#0f172a' },
-            }}
-          >
-            Send to Kitchen
-          </Button>
-
-          <Box sx={{ display: 'flex', gap: 1.5 }}>
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={<SaveAlt sx={{ fontSize: 16 }} />}
-              sx={{
-                py: 1.2,
-                borderRadius: 2,
-                borderColor: '#e2e8f0',
-                color: '#475569',
-                fontWeight: 600,
-                textTransform: 'none',
-                '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
-              }}
-            >
-              Save Draft
-            </Button>
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={<Print sx={{ fontSize: 16 }} />}
-              sx={{
-                py: 1.2,
-                borderRadius: 2,
-                borderColor: '#e2e8f0',
-                color: '#475569',
-                fontWeight: 600,
-                textTransform: 'none',
-                '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
-              }}
-            >
-              Print Bill
-            </Button>
-          </Box>
+          {tableInfo?.status === 'available' || tableInfo?.status === 'reserved' ? (
+            <Box sx={{ display: 'flex', gap: 1.5 }}>
+              <Button
+                fullWidth
+                variant="contained"
+                startIcon={<Send sx={{ fontSize: 16 }} />}
+                disabled={orderItems.length === 0 || isSubmitting}
+                onClick={() => handleOrderAction('confirmed')}
+                sx={{
+                  py: 1.5,
+                  borderRadius: 2,
+                  bgcolor: '#1e293b',
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  fontSize: '0.95rem',
+                  '&:hover': { bgcolor: '#0f172a' },
+                }}
+              >
+                {isSubmitting ? 'Confirming...' : 'Confirm Order'}
+              </Button>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<SaveAlt sx={{ fontSize: 16 }} />}
+                disabled={orderItems.length === 0 || isSubmitting}
+                onClick={() => handleOrderAction('draft')}
+                sx={{
+                  py: 1.5,
+                  borderRadius: 2,
+                  borderColor: '#e2e8f0',
+                  color: '#475569',
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
+                }}
+              >
+                Save Draft
+              </Button>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              {/* If occupied, maybe show "Add Order" and "Print Bill" */}
+              <Button
+                fullWidth
+                variant="contained"
+                startIcon={<Send sx={{ fontSize: 16 }} />}
+                disabled={orderItems.length === 0 || isSubmitting}
+                onClick={() => handleOrderAction('confirmed')}
+                sx={{
+                  py: 1.5,
+                  borderRadius: 2,
+                  bgcolor: '#1e293b',
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  fontSize: '0.95rem',
+                  '&:hover': { bgcolor: '#0f172a' },
+                }}
+              >
+                Post Additional Order
+              </Button>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<Print sx={{ fontSize: 16 }} />}
+                disabled={isSubmitting}
+                sx={{
+                  py: 1.2,
+                  borderRadius: 2,
+                  borderColor: '#e2e8f0',
+                  color: '#475569',
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
+                }}
+              >
+                Print Bill
+              </Button>
+            </Box>
+          )}
         </Box>
       </Box>
+
+      {/* Snackbar Notification */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{ top: { xs: 80, sm: 105 } }}
+      >
+        <Alert
+          onClose={handleCloseSnackbar}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ minWidth: 250, borderRadius: 2, fontWeight: 600 }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+
+      {/* Note Modal */}
+      <Dialog
+        open={noteModal.open}
+        onClose={() => setNoteModal({ open: false, foodId: null, note: '' })}
+        PaperProps={{ sx: { borderRadius: 3, minWidth: 400 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 800, color: '#1e293b' }}>Tambah Catatan</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1.5, color: '#64748b' }}>
+            Tambahkan instruksi khusus untuk koki (misalnya: tidak pedas, tanpa bawang, dll.)
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            placeholder="Ketik catatan di sini..."
+            value={noteModal.note}
+            onChange={(e) => {
+              const val = e.target.value;
+              // Allow alphanumeric, space, and . , / ( )
+              const filtered = val.replace(/[^a-zA-Z0-9\s.,\/()]/g, '');
+              setNoteModal({ ...noteModal, note: filtered });
+            }}
+            variant="outlined"
+            sx={{
+              '& .MuiOutlinedInput-root': { borderRadius: 2 }
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button
+            onClick={() => setNoteModal({ open: false, foodId: null, note: '' })}
+            sx={{ textTransform: 'none', fontWeight: 600, color: '#64748b' }}
+          >
+            Batal
+          </Button>
+          <Button
+            onClick={handleSaveNote}
+            variant="contained"
+            sx={{
+              textTransform: 'none',
+              fontWeight: 700,
+              bgcolor: '#1e293b',
+              borderRadius: 2,
+              px: 3,
+              '&:hover': { bgcolor: '#0f172a' }
+            }}
+          >
+            Simpan Catatan
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

@@ -94,7 +94,7 @@ const FoodManagement = () => {
         message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
         severity: 'error',
       });
-      setTimeout(() => navigate('/dashboard'), 2500);
+      setTimeout(() => navigate('/dashboard'), 4000);
       return;
     }
 
@@ -554,7 +554,7 @@ const FoodManagement = () => {
       {/* Snackbar Notification */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={5000}
+        autoHideDuration={4000}
         onClose={handleCloseSnackbar}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         sx={{ top: { xs: 80, sm: 105 } }}

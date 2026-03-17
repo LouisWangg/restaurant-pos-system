@@ -20,14 +20,32 @@ const TableGrid = ({ tables, onTableUpdate, setSnackbar }) => {
   const [selectedTable, setSelectedTable] = useState(null);
 
   const handleTableClick = (table) => {
-    if (!user || (user.role !== 'Pelayan' && user.role !== 'Kasir')) {
-      if (setSnackbar) {
-        setSnackbar({
-          open: true,
-          message: 'Fitur tersebut hanya dapat diakses oleh Pelayan dan Kasir',
-          severity: 'error'
-        });
-      }
+    if (table.status === 'inactive') return;
+
+    const isKasir = user?.role === 'Kasir';
+    const isPelayan = user?.role === 'Pelayan';
+    const isStaff = isKasir || isPelayan;
+
+    const showError = (message) => {
+      setSnackbar?.({
+        open: true,
+        message,
+        severity: 'error'
+      });
+    };
+
+    if (!isStaff) {
+      showError('Fitur tersebut hanya dapat diakses oleh Pelayan dan Kasir');
+      return;
+    }
+
+    if (isKasir && ['available', 'reserved'].includes(table.status)) {
+      showError('Halaman tersebut hanya dapat diakses oleh Pelayan');
+      return;
+    }
+
+    if (['occupied', 'reserved'].includes(table.status)) {
+      navigate(`/orders/${table.id}`);
       return;
     }
 
@@ -79,9 +97,10 @@ const TableGrid = ({ tables, onTableUpdate, setSnackbar }) => {
               bgcolor: getStatusColor(table.status),
               color: 'white',
               borderRadius: 2,
-              cursor: table.status === 'available' ? 'pointer' : 'default',
+              cursor: table.status === 'inactive' ? 'not-allowed' : 'pointer',
+              opacity: table.status === 'inactive' ? 0.6 : 1,
               transition: 'transform 0.2s, opacity 0.2s',
-              '&:hover': table.status === 'available' ? {
+              '&:hover': table.status !== 'inactive' ? {
                 transform: 'scale(1.05)',
                 opacity: 0.9,
               } : {},
@@ -98,14 +117,14 @@ const TableGrid = ({ tables, onTableUpdate, setSnackbar }) => {
       <Dialog
         open={Boolean(selectedTable)}
         onClose={() => setSelectedTable(null)}
-        PaperProps={{ 
-          sx: { 
-            borderRadius: 4, 
-            px: 1, 
-            py: 1, 
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            px: 1,
+            py: 1,
             minWidth: 360,
             boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)'
-          } 
+          }
         }}
       >
         <DialogTitle sx={{ fontWeight: 800, color: '#1e293b', pb: 0, pt: 2 }}>
@@ -130,8 +149,8 @@ const TableGrid = ({ tables, onTableUpdate, setSnackbar }) => {
               borderColor: '#e2e8f0',
               color: '#475569',
               transition: 'all 0.2s',
-              '&:hover': { 
-                borderColor: '#cbd5e1', 
+              '&:hover': {
+                borderColor: '#cbd5e1',
                 bgcolor: '#f8fafc',
                 transform: 'translateY(-2px)'
               },
@@ -152,7 +171,7 @@ const TableGrid = ({ tables, onTableUpdate, setSnackbar }) => {
               bgcolor: '#1e293b',
               boxShadow: 'none',
               transition: 'all 0.2s',
-              '&:hover': { 
+              '&:hover': {
                 bgcolor: '#0f172a',
                 boxShadow: '0 10px 15px -3px rgba(30, 41, 59, 0.3)',
                 transform: 'translateY(-2px)'
