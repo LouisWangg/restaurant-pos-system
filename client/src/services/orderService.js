@@ -4,6 +4,14 @@ const orderService = {
   createOrder: async (orderData) => {
     const response = await api.post('/api/orders', orderData);
     return response.data;
+  },
+  updateOrderItemStatus: async (id, status) => {
+    const response = await api.patch(`/api/order-items/${id}/status`, { status });
+    return response.data;
+  },
+  closeOrder: async (id) => {
+    const response = await api.post(`/api/orders/${id}/close`);
+    return response.data;
   }
 };
 

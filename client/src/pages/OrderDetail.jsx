@@ -28,10 +28,12 @@ import {
   Search,
   Add,
   Remove,
+  Cancel,
   Delete,
   Send,
   SaveAlt,
   Print,
+  CheckCircle,
   Logout,
   EditNote
 } from '@mui/icons-material';
@@ -79,7 +81,8 @@ const OrderDetail = () => {
   const [tableInfo, setTableInfo] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  const [noteModal, setNoteModal] = useState({ open: false, foodId: null, note: '' });
+  const [noteModal, setNoteModal] = useState({ open: false, itemIndex: null, note: '' });
+  const [activeOrderId, setActiveOrderId] = useState(null);
 
   const handleCloseSnackbar = () => setSnackbar(prev => ({ ...prev, open: false }));
 
@@ -115,8 +118,10 @@ const OrderDetail = () => {
         setTableInfo(tbl);
 
         // If table is occupied and has an active order, populate orderItems
-        if (tbl.status === 'occupied' && tbl.active_order) {
+        if ((tbl.status === 'occupied' || tbl.status === 'reserved') && tbl.active_order) {
+          setActiveOrderId(tbl.active_order.id);
           const existingItems = tbl.active_order.items.map(item => ({
+            id: item.id, // Store database ID
             food: item.food,
             quantity: item.qty,
             note: item.note || '',
@@ -143,32 +148,55 @@ const OrderDetail = () => {
 
   const handleAddItem = (food) => {
     setOrderItems((prev) => {
-      const existingDraft = prev.find((item) => item.food.id === food.id && item.status === 'draft');
-      if (existingDraft) {
+      const existingNew = prev.find((item) => item.food.id === food.id && item.status === 'new');
+      if (existingNew) {
         return prev.map((item) =>
-          (item.food.id === food.id && item.status === 'draft')
+          (item.food.id === food.id && item.status === 'new')
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
-      return [...prev, { food, quantity: 1, note: '', status: 'draft' }];
+      return [...prev, { food, quantity: 1, note: '', status: 'new' }];
     });
   };
 
-  const handleUpdateQty = (foodId, delta) => {
+  const handleUpdateQty = (index, delta) => {
     setOrderItems((prev) =>
       prev
-        .map((item) =>
-          (item.food.id === foodId && item.status === 'draft')
-            ? { ...item, quantity: item.quantity + delta }
+        .map((item, i) =>
+          i === index
+            ? { ...item, quantity: Math.max(item.status === 'new' ? 0 : 1, item.quantity + delta) }
             : item
         )
-        .filter((item) => item.quantity > 0 || item.status !== 'draft')
+        .filter((item) => item.quantity > 0 || item.status !== 'new')
     );
   };
 
-  const handleRemoveItem = (foodId) => {
-    setOrderItems((prev) => prev.filter((item) => !(item.food.id === foodId && item.status === 'draft')));
+  const handleItemAction = async (index) => {
+    const item = orderItems[index];
+
+    if (item.status === 'new') {
+      setOrderItems((prev) => prev.filter((_, i) => i !== index));
+      return;
+    }
+
+    if (item.status === 'draft') {
+      try {
+        await orderService.updateOrderItemStatus(item.id, 'cancelled');
+        setOrderItems((prev) =>
+          prev.map((it, i) =>
+            i === index ? { ...it, status: 'cancelled' } : it
+          )
+        );
+      } catch (err) {
+        console.error('Failed to cancel item:', err);
+        setSnackbar({
+          open: true,
+          message: 'Gagal membatalkan item: ' + (err.response?.data?.message || err.message),
+          severity: 'error'
+        });
+      }
+    }
   };
 
   const handleOrderAction = async (itemStatus) => {
@@ -177,14 +205,19 @@ const OrderDetail = () => {
     setIsSubmitting(true);
     try {
       const payload = {
+        order_id: activeOrderId,
         table_id: tableId,
+        items: orderItems
+          .filter((item) => item.status !== 'cancelled')
+          .map((item) => ({
+            id: item.id || null, // Include ID for existing items
+            food_id: item.food.id,
+            qty: item.quantity,
+            price: item.food.price,
+            note: item.note,
+          })),
         item_status: itemStatus,
-        items: orderItems.map(item => ({
-          food_id: item.food.id,
-          qty: item.quantity,
-          price: item.food.price,
-          note: item.note || null
-        }))
+        total_price: total
       };
 
       await orderService.createOrder(payload);
@@ -214,6 +247,33 @@ const OrderDetail = () => {
     }
   };
 
+  const handleCloseOrder = async () => {
+    if (!activeOrderId) return;
+
+    setIsSubmitting(true);
+    try {
+      await orderService.closeOrder(activeOrderId);
+      navigate('/dashboard', {
+        state: {
+          snackbar: {
+            open: true,
+            message: 'Meja sekarang tersedia kembali!',
+            severity: 'success'
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Failed to close order:', err);
+      setSnackbar({
+        open: true,
+        message: 'Gagal menutup pesanan. Silakan coba lagi.',
+        severity: 'error'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
 
   const formatCurrency = (amount) =>
     new Intl.NumberFormat('id-ID', {
@@ -223,19 +283,31 @@ const OrderDetail = () => {
     }).format(amount);
 
   const total = orderItems.reduce(
-    (sum, item) => sum + item.food.price * item.quantity,
+    (sum, item) => (item.status === 'cancelled' ? sum : sum + item.food.price * item.quantity),
     0
   );
 
-  const handleOpenNoteModal = (foodId, currentNote) => {
-    setNoteModal({ open: true, foodId, note: currentNote || '' });
+  const hasItems = orderItems.length > 0;
+  const hasInteractiveItems = orderItems.some((item) => item.status === 'new' || item.status === 'draft');
+  const hasConfirmedItems = orderItems.some((item) => item.status === 'confirmed');
+  const allCancelled = hasItems && orderItems.every((item) => item.status === 'cancelled');
+
+  const isInitialOrder = tableInfo?.status === 'available' || tableInfo?.status === 'reserved';
+  const showFooterButtons = isInitialOrder || hasInteractiveItems || allCancelled;
+  const showOccupiedActions = tableInfo?.status === 'occupied' && hasConfirmedItems;
+  const showPrintBill = showOccupiedActions && !hasInteractiveItems;
+
+  const handleOpenNoteModal = (index, currentNote) => {
+    setNoteModal({ open: true, itemIndex: index, note: currentNote || '' });
   };
 
   const handleSaveNote = () => {
-    setOrderItems(prev => prev.map(item =>
-      item.food.id === noteModal.foodId ? { ...item, note: noteModal.note } : item
-    ));
-    setNoteModal({ open: false, foodId: null, note: '' });
+    setOrderItems((prev) =>
+      prev.map((item, i) =>
+        i === noteModal.itemIndex ? { ...item, note: noteModal.note } : item
+      )
+    );
+    setNoteModal({ open: false, itemIndex: null, note: '' });
   };
 
   if (loading) {
@@ -400,7 +472,7 @@ const OrderDetail = () => {
           />
 
           {/* Food List */}
-          <Box sx={{ flex: 1, overflowY: 'auto', pr: 0.5 }}>
+          <Box sx={{ flex: 1, overflowY: 'auto', pr: 2 }}>
             {filteredFoods.map((food) => (
               <Paper
                 key={food.id}
@@ -465,7 +537,7 @@ const OrderDetail = () => {
           <Divider sx={{ mb: 2 }} />
 
           {/* Order Items */}
-          <Box sx={{ flex: 1, overflowY: 'auto', mb: 2 }}>
+          <Box sx={{ flex: 1, overflowY: 'auto', mb: 2, pr: 2 }}>
             {orderItems.length === 0 ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 150 }}>
                 <Typography variant="body2" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
@@ -479,9 +551,14 @@ const OrderDetail = () => {
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
                         {food.name}
-                        {status === 'confirmed' && 
+                        {status === 'confirmed' &&
                           <Box component="span" sx={{ fontSize: '0.75rem', ml: 1, color: '#64748b', fontWeight: 400 }}>
                             (Confirmed)
+                          </Box>
+                        }
+                        {status === 'cancelled' &&
+                          <Box component="span" sx={{ fontSize: '0.75rem', ml: 1, color: '#ef4444', fontWeight: 400 }}>
+                            (Cancelled)
                           </Box>
                         }
                       </Typography>
@@ -495,43 +572,52 @@ const OrderDetail = () => {
                       {formatCurrency(food.price * quantity)}
                     </Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <IconButton 
-                      size="small" 
-                      onClick={() => handleUpdateQty(food.id, -1)}
-                      disabled={status !== 'draft'}
-                      sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
-                    >
-                      <Remove sx={{ fontSize: 14 }} />
-                    </IconButton>
-                    <Typography sx={{ px: 1, minWidth: 24, textAlign: 'center', fontWeight: 600, fontSize: '0.875rem' }}>
-                      {quantity}
-                    </Typography>
-                    <IconButton 
-                      size="small" 
-                      onClick={() => handleUpdateQty(food.id, 1)}
-                      disabled={status !== 'draft'}
-                      sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
-                    >
-                      <Add sx={{ fontSize: 14 }} />
-                    </IconButton>
-                    <Box sx={{ flex: 1 }} />
-                    <IconButton 
-                      size="small" 
-                      onClick={() => handleOpenNoteModal(food.id, note)}
-                      disabled={status !== 'draft'}
-                      sx={{ color: '#94a3b8', '&:hover': { color: '#6366f1' }, mr: 0.5 }}
-                    >
-                      <EditNote sx={{ fontSize: 20 }} />
-                    </IconButton>
-                    <IconButton 
-                      size="small" 
-                      onClick={() => handleRemoveItem(food.id)}
-                      disabled={status !== 'draft'}
-                      sx={{ color: '#94a3b8', '&:hover': { color: '#ef4444' } }}
-                    >
-                      <Delete sx={{ fontSize: 16 }} />
-                    </IconButton>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, height: 32 }}>
+                    {(status === 'new' || status === 'draft') ? (
+                      <>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleUpdateQty(index, -1)}
+                          disabled={status === 'draft' && quantity <= 1}
+                          sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
+                        >
+                          <Remove sx={{ fontSize: 14 }} />
+                        </IconButton>
+                        <Typography sx={{ px: 1, minWidth: 24, textAlign: 'center', fontWeight: 600, fontSize: '0.875rem' }}>
+                          {quantity}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleUpdateQty(index, 1)}
+                          sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
+                        >
+                          <Add sx={{ fontSize: 14 }} />
+                        </IconButton>
+                        <Box sx={{ flex: 1 }} />
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenNoteModal(index, note)}
+                          sx={{ color: '#94a3b8', '&:hover': { color: '#6366f1' }, mr: 0.5 }}
+                        >
+                          <EditNote sx={{ fontSize: 20 }} />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleItemAction(index)}
+                          sx={{ color: '#94a3b8', '&:hover': { color: '#ef4444' } }}
+                        >
+                          {status === 'new' ? (
+                            <Delete sx={{ fontSize: 16 }} />
+                          ) : (
+                            <Cancel sx={{ fontSize: 16 }} />
+                          )}
+                        </IconButton>
+                      </>
+                    ) : (
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.875rem' }}>
+                        Qty: {quantity}
+                      </Typography>
+                    )}
                   </Box>
                 </Box>
               ))
@@ -549,85 +635,115 @@ const OrderDetail = () => {
           </Box>
 
           {/* Action Buttons */}
-          {tableInfo?.status === 'available' || tableInfo?.status === 'reserved' ? (
-            <Box sx={{ display: 'flex', gap: 1.5 }}>
-              <Button
-                fullWidth
-                variant="contained"
-                startIcon={<Send sx={{ fontSize: 16 }} />}
-                disabled={orderItems.length === 0 || isSubmitting}
-                onClick={() => handleOrderAction('confirmed')}
-                sx={{
-                  py: 1.5,
-                  borderRadius: 2,
-                  bgcolor: '#1e293b',
-                  fontWeight: 700,
-                  textTransform: 'none',
-                  fontSize: '0.95rem',
-                  '&:hover': { bgcolor: '#0f172a' },
-                }}
-              >
-                {isSubmitting ? 'Confirming...' : 'Confirm Order'}
-              </Button>
-              <Button
-                fullWidth
-                variant="outlined"
-                startIcon={<SaveAlt sx={{ fontSize: 16 }} />}
-                disabled={orderItems.length === 0 || isSubmitting}
-                onClick={() => handleOrderAction('draft')}
-                sx={{
-                  py: 1.5,
-                  borderRadius: 2,
-                  borderColor: '#e2e8f0',
-                  color: '#475569',
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
-                }}
-              >
-                Save Draft
-              </Button>
-            </Box>
-          ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-              {/* If occupied, maybe show "Add Order" and "Print Bill" */}
-              <Button
-                fullWidth
-                variant="contained"
-                startIcon={<Send sx={{ fontSize: 16 }} />}
-                disabled={orderItems.length === 0 || isSubmitting}
-                onClick={() => handleOrderAction('confirmed')}
-                sx={{
-                  py: 1.5,
-                  borderRadius: 2,
-                  bgcolor: '#1e293b',
-                  fontWeight: 700,
-                  textTransform: 'none',
-                  fontSize: '0.95rem',
-                  '&:hover': { bgcolor: '#0f172a' },
-                }}
-              >
-                Post Additional Order
-              </Button>
-              <Button
-                fullWidth
-                variant="outlined"
-                startIcon={<Print sx={{ fontSize: 16 }} />}
-                disabled={isSubmitting}
-                sx={{
-                  py: 1.2,
-                  borderRadius: 2,
-                  borderColor: '#e2e8f0',
-                  color: '#475569',
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
-                }}
-              >
-                Print Bill
-              </Button>
-            </Box>
-          )}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {showOccupiedActions ? (
+              <>
+                {/* 3-Button Layout for Occupied + Confirmed */}
+                <Button
+                  fullWidth
+                  variant="contained"
+                  color="error"
+                  startIcon={<CheckCircle sx={{ fontSize: 16 }} />}
+                  disabled={isSubmitting}
+                  onClick={handleCloseOrder}
+                  sx={{
+                    py: 1.5,
+                    borderRadius: 2,
+                    bgcolor: '#ef4444',
+                    fontWeight: 700,
+                    textTransform: 'none',
+                    fontSize: '0.95rem',
+                    '&:hover': { bgcolor: '#dc2626' },
+                  }}
+                >
+                  Close Order
+                </Button>
+
+                <Box sx={{ display: 'flex', gap: 1.5 }}>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<Send sx={{ fontSize: 16 }} />}
+                    disabled={!hasInteractiveItems || isSubmitting}
+                    onClick={() => handleOrderAction('confirmed')}
+                    sx={{
+                      py: 1.5,
+                      borderRadius: 2,
+                      borderColor: '#e2e8f0',
+                      color: '#475569',
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
+                      '&.Mui-disabled': { borderColor: '#f1f5f9', color: '#cbd5e1' }
+                    }}
+                  >
+                    Send to Kitchen
+                  </Button>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<Print sx={{ fontSize: 16 }} />}
+                    disabled={!showPrintBill || isSubmitting}
+                    sx={{
+                      py: 1.5,
+                      borderRadius: 2,
+                      borderColor: '#e2e8f0',
+                      color: '#475569',
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
+                      '&.Mui-disabled': { borderColor: '#f1f5f9', color: '#cbd5e1' }
+                    }}
+                  >
+                    Print Bill
+                  </Button>
+                </Box>
+              </>
+            ) : (
+              /* Original 2-Button Layout for Drafts/Initial */
+              showFooterButtons && (
+                <Box sx={{ display: 'flex', gap: 1.5 }}>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    startIcon={<Send sx={{ fontSize: 16 }} />}
+                    disabled={!hasItems || allCancelled || isSubmitting}
+                    onClick={() => handleOrderAction('confirmed')}
+                    sx={{
+                      py: 1.5,
+                      borderRadius: 2,
+                      bgcolor: '#1e293b',
+                      fontWeight: 700,
+                      textTransform: 'none',
+                      fontSize: '0.95rem',
+                      '&:hover': { bgcolor: '#0f172a' },
+                      '&.Mui-disabled': { bgcolor: '#e2e8f0', color: '#94a3b8' }
+                    }}
+                  >
+                    {isSubmitting ? 'Confirming...' : 'Send to Kitchen'}
+                  </Button>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<SaveAlt sx={{ fontSize: 16 }} />}
+                    disabled={!hasItems || allCancelled || isSubmitting}
+                    onClick={() => handleOrderAction('draft')}
+                    sx={{
+                      py: 1.5,
+                      borderRadius: 2,
+                      borderColor: '#e2e8f0',
+                      color: '#475569',
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
+                    }}
+                  >
+                    Save Draft
+                  </Button>
+                </Box>
+              )
+            )}
+          </Box>
         </Box>
       </Box>
 

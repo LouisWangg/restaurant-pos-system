@@ -21,10 +21,9 @@ return new class extends Migration
             $table->enum('status', [
                 'open',
                 'closed',
-                'paid'
             ])->default('open');
 
-            $table->integer('total_price')->default(0);
+            $table->decimal('total_price', 15, 2)->default(0);
             $table->timestamp('opened_at')->nullable();
             $table->timestamp('closed_at')->nullable();
             $table->timestamps();

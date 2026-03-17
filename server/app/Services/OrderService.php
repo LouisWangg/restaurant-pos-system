@@ -16,32 +16,68 @@ class OrderService
     public function createOrder(array $data)
     {
         return DB::transaction(function () use ($data) {
-            // 1. Generate Order Number
-            $orderNumber = $this->generateOrderNumber();
+            // 1. Check if there's an active 'open' order for this table
+            $order = Order::where('table_id', $data['table_id'])
+                ->where('status', 'open')
+                ->first();
 
-            // 2. Create Order
-            $order = Order::create([
-                'order_number' => $orderNumber,
-                'table_id' => $data['table_id'],
-                'opened_by' => $data['user_id'],
-                'status' => 'open',
-                'total_price' => $data['total_price'],
-                'opened_at' => Carbon::now(),
-            ]);
-
-            // 3. Create Order Items
-            foreach ($data['items'] as $item) {
-                OrderItem::create([
-                    'order_id' => $order->id,
-                    'food_id' => $item['food_id'],
-                    'qty' => $item['qty'],
-                    'price' => $item['price'],
-                    'note' => $item['note'] ?? null,
-                    'status' => $data['item_status'], // 'confirmed' or 'draft'
+            if ($order) {
+                // Update existing order
+                $order->update([
+                    'total_price' => $data['total_price'],
+                ]);
+            } else {
+                // Create new order
+                $orderNumber = $this->generateOrderNumber();
+                $order = Order::create([
+                    'order_number' => $orderNumber,
+                    'table_id' => $data['table_id'],
+                    'opened_by' => $data['user_id'],
+                    'status' => 'open',
+                    'total_price' => $data['total_price'],
+                    'opened_at' => Carbon::now(),
                 ]);
             }
 
-            // 4. Update Table Status to 'occupied'
+            // 2. Handle Order Items
+            foreach ($data['items'] as $itemData) {
+                // Logic: 
+                // - Jika item memiliki id, berarti item lama yang perlu diupdate (misal qty/note).
+                // - Jika item tidak memiliki id, berarti item baru ('new').
+                
+                if (isset($itemData['id'])) {
+                    $item = OrderItem::find($itemData['id']);
+                    // Safeguard: Jika item sudah cancelled, jangan diupdate tapi buat baru
+                    if ($item && $item->status !== 'cancelled') {
+                        $item->update([
+                            'qty' => $itemData['qty'],
+                            'note' => $itemData['note'] ?? null,
+                            'status' => $data['item_status'], // Update status to 'confirmed' if clicked Send to Kitchen
+                        ]);
+                    } else {
+                        // Create new record if item doesn't exist or is cancelled
+                        OrderItem::create([
+                            'order_id' => $order->id,
+                            'food_id' => $itemData['food_id'],
+                            'qty' => $itemData['qty'],
+                            'price' => $itemData['price'],
+                            'note' => $itemData['note'] ?? null,
+                            'status' => $data['item_status'],
+                        ]);
+                    }
+                } else {
+                    OrderItem::create([
+                        'order_id' => $order->id,
+                        'food_id' => $itemData['food_id'],
+                        'qty' => $itemData['qty'],
+                        'price' => $itemData['price'],
+                        'note' => $itemData['note'] ?? null,
+                        'status' => $data['item_status'],
+                    ]);
+                }
+            }
+
+            // 3. Update Table Status to 'occupied'
             $table = RestaurantTable::find($data['table_id']);
             if ($table) {
                 $table->status = 'occupied';
@@ -50,6 +86,33 @@ class OrderService
 
             return $order->load('items.food');
         });
+    }
+
+    /**
+     * Update order item status
+     */
+    public function updateOrderItemStatus(int $id, string $status)
+    {
+        $item = OrderItem::find($id);
+        if (!$item) {
+            throw new \Exception('Order item not found');
+        }
+
+        $item->status = $status;
+        $item->save();
+
+        // Recalculate Order total_price
+        $order = Order::find($item->order_id);
+        if ($order) {
+            $newTotal = OrderItem::where('order_id', $order->id)
+                ->where('status', '!=', 'cancelled')
+                ->sum(DB::raw('qty * price'));
+            
+            $order->total_price = $newTotal;
+            $order->save();
+        }
+
+        return $item;
     }
 
     /**
@@ -73,5 +136,21 @@ class OrderService
         }
 
         return $prefix . $newSequence;
+    }
+
+    public function closeOrder(int $orderId, int $userId)
+    {
+        $order = Order::findOrFail($orderId);
+        
+        $order->update([
+            'status' => 'closed',
+            'closed_at' => now(),
+            'closed_by' => $userId,
+        ]);
+
+        // Release the table
+        $order->table->update(['status' => 'available']);
+
+        return $order;
     }
 }
