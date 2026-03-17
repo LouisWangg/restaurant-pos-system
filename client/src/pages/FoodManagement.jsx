@@ -551,10 +551,10 @@ const FoodManagement = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Toast Notification */}
+      {/* Snackbar Notification */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={3000}
+        autoHideDuration={5000}
         onClose={handleCloseSnackbar}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         sx={{ top: { xs: 80, sm: 105 } }}

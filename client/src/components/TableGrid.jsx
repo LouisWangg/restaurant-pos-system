@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, Paper, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import tableService from '../services/tableService';
+import { useAuth } from '../context/AuthContext';
 
 const getStatusColor = (status) => {
   switch (status) {
@@ -13,11 +14,23 @@ const getStatusColor = (status) => {
   }
 };
 
-const TableGrid = ({ tables, onTableUpdate }) => {
+const TableGrid = ({ tables, onTableUpdate, setSnackbar }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [selectedTable, setSelectedTable] = useState(null);
 
   const handleTableClick = (table) => {
+    if (!user || (user.role !== 'Pelayan' && user.role !== 'Kasir')) {
+      if (setSnackbar) {
+        setSnackbar({
+          open: true,
+          message: 'Fitur tersebut hanya dapat diakses oleh Pelayan dan Kasir',
+          severity: 'error'
+        });
+      }
+      return;
+    }
+
     if (table.status === 'available') {
       setSelectedTable(table);
     }

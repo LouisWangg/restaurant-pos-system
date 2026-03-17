@@ -65,7 +65,7 @@ const Dashboard = () => {
       reserved: 0,
       inactive: 0
     };
-    
+
     tables.forEach(table => {
       if (counts.hasOwnProperty(table.status)) {
         counts[table.status]++;
@@ -94,10 +94,10 @@ const Dashboard = () => {
             exclusive
             onChange={handleViewChange}
             size="small"
-            sx={{ 
-              bgcolor: 'white', 
-              '& .MuiToggleButton-root': { 
-                px: 3, 
+            sx={{
+              bgcolor: 'white',
+              '& .MuiToggleButton-root': {
+                px: 3,
                 py: 1,
                 border: '1px solid',
                 borderColor: 'divider',
@@ -106,7 +106,7 @@ const Dashboard = () => {
                   color: 'primary.main',
                   fontWeight: 'bold'
                 }
-              } 
+              }
             }}
           >
             <ToggleButton value="floor" sx={{ gap: 1 }}>
@@ -135,7 +135,7 @@ const Dashboard = () => {
                   <Typography color="error">{error}</Typography>
                 </Box>
               ) : (
-                <TableGrid tables={tables} onTableUpdate={fetchTables} />
+                <TableGrid tables={tables} onTableUpdate={fetchTables} setSnackbar={setSnackbar} />
               )}
             </Box>
             <QuickStats stats={getStats()} />
@@ -143,10 +143,10 @@ const Dashboard = () => {
         </Stack>
       </Container>
 
-      {/* Access Denied Toast */}
+      {/* Access Denied Snackbar */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={3000}
+        autoHideDuration={5000}
         onClose={handleCloseSnackbar}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         sx={{ top: { xs: 80, sm: 105 } }}
