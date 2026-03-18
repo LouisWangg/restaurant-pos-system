@@ -12,6 +12,14 @@ const orderService = {
   closeOrder: async (id) => {
     const response = await api.post(`/api/orders/${id}/close`);
     return response.data;
+  },
+  getOrders: async (params) => {
+    const response = await api.get('/api/orders', { params });
+    return response.data;
+  },
+  getOrderById: async (id) => {
+    const response = await api.get(`/api/orders/${id}`);
+    return response.data;
   }
 };
 

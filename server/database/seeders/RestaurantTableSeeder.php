@@ -19,5 +19,8 @@ class RestaurantTableSeeder extends Seeder
                 'status' => 'available'
             ]);
         }
+
+        // Randomly set 3 tables to inactive
+        RestaurantTable::inRandomOrder()->limit(3)->update(['status' => 'inactive']);
     }
 }

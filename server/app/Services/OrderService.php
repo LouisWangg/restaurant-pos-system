@@ -153,4 +153,38 @@ class OrderService
 
         return $order;
     }
+
+    /**
+     * Get all orders with optional search and status filtering
+     */
+    public function getAllOrders($search = null, $status = null)
+    {
+        $query = Order::with(['table', 'items.food']);
+
+        if ($status && $status !== 'all') {
+            $query->where('status', $status);
+        }
+
+        if ($search) {
+            $query->where(function($q) use ($search) {
+                $q->where('order_number', 'like', "%{$search}%")
+                  ->orWhereHas('table', function($t) use ($search) {
+                      $t->where('table_number', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        // Sort by status (open first) then by created_at desc
+        return $query->orderByRaw("status = 'open' DESC")
+                     ->orderBy('created_at', 'DESC')
+                     ->get();
+    }
+
+    /**
+     * Get order by ID with details
+     */
+    public function getOrderById(int $id)
+    {
+        return Order::with(['table', 'items.food', 'user'])->findOrFail($id);
+    }
 }

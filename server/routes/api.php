@@ -23,6 +23,8 @@ Route::middleware(['auth:sanctum', 'role:Pelayan'])->group(function () {
     Route::patch('/foods/{food}', [FoodController::class, 'update']);
     Route::delete('/foods/{food}', [FoodController::class, 'destroy']);
     Route::post('/orders', [OrderController::class, 'store']);
+    Route::get('/orders', [OrderController::class, 'index']);
+    Route::get('/orders/{id}', [OrderController::class, 'show']);
     Route::post('/orders/{order}/close', [OrderController::class, 'close']);
     Route::patch('/order-items/{id}/status', [OrderController::class, 'updateItemStatus']);
 });

@@ -19,6 +19,49 @@ class OrderController extends Controller
     }
 
     /**
+     * Menampilkan daftar semua pesanan dengan filter
+     */
+    public function index(Request $request): JsonResponse
+    {
+        try {
+            $orders = $this->orderService->getAllOrders(
+                $request->query('search'),
+                $request->query('status')
+            );
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $orders
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal mengambil daftar pesanan: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Menampilkan detail satu pesanan
+     */
+    public function show(int $id): JsonResponse
+    {
+        try {
+            $order = $this->orderService->getOrderById($id);
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $order
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal mengambil detail pesanan: ' . $e->getMessage()
+            ], 404);
+        }
+    }
+
+    /**
      * Menyimpan pesanan baru
      */
     public function store(Request $request): JsonResponse

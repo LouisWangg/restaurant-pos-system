@@ -37,7 +37,8 @@ import {
   Logout,
   EditNote
 } from '@mui/icons-material';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { jsPDF } from 'jspdf';
 import foodService from '../services/foodService';
 import tableService from '../services/tableService';
 import orderService from '../services/orderService';
@@ -52,9 +53,19 @@ const FOOD_TYPES = [
 ];
 
 const OrderDetail = () => {
-  const { tableId } = useParams();
+  const { tableId, orderId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuth();
+  const isReadOnly = !!orderId;
+
+  const handleBack = () => {
+    if (location.state?.from) {
+      navigate(location.state.from);
+    } else {
+      navigate('/dashboard');
+    }
+  };
 
   const [anchorEl, setAnchorEl] = useState(null);
   const open = Boolean(anchorEl);
@@ -94,40 +105,54 @@ const OrderDetail = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [foodsData, tableData] = await Promise.all([
-          foodService.getFoods(),
-          tableService.getTableById(tableId),
-        ]);
-
-        const tbl = tableData.data || tableData;
-
-        // Role-based Access Control for Kasir
-        if (user?.role === 'Kasir' && tbl.status !== 'occupied') {
-          setSnackbar({
-            open: true,
-            message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
-            severity: 'error'
-          });
-          setTimeout(() => {
-            navigate('/dashboard');
-          }, 4000); // 4 seconds delay to read the snackbar
-          return;
-        }
-
-        setFoods(foodsData);
-        setTableInfo(tbl);
-
-        // If table is occupied and has an active order, populate orderItems
-        if ((tbl.status === 'occupied' || tbl.status === 'reserved') && tbl.active_order) {
-          setActiveOrderId(tbl.active_order.id);
-          const existingItems = tbl.active_order.items.map(item => ({
-            id: item.id, // Store database ID
+        if (isReadOnly) {
+          const response = await orderService.getOrderById(orderId);
+          const order = response.data;
+          setTableInfo({ ...order.table, active_order: order });
+          setActiveOrderId(order.id);
+          const existingItems = order.items.map(item => ({
+            id: item.id,
             food: item.food,
             quantity: item.qty,
             note: item.note || '',
-            status: item.status // Track item status (draft/confirmed)
+            status: item.status
           }));
           setOrderItems(existingItems);
+        } else {
+          const [foodsData, tableData] = await Promise.all([
+            foodService.getFoods(),
+            tableService.getTableById(tableId),
+          ]);
+
+          const tbl = tableData.data || tableData;
+
+          // Role-based Access Control for Kasir
+          if (user?.role === 'Kasir' && tbl.status !== 'occupied') {
+            setSnackbar({
+              open: true,
+              message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
+              severity: 'error'
+            });
+            setTimeout(() => {
+              navigate('/dashboard');
+            }, 4000);
+            return;
+          }
+
+          setFoods(foodsData);
+          setTableInfo(tbl);
+
+          if ((tbl.status === 'occupied' || tbl.status === 'reserved') && tbl.active_order) {
+            setActiveOrderId(tbl.active_order.id);
+            const existingItems = tbl.active_order.items.map(item => ({
+              id: item.id,
+              food: item.food,
+              quantity: item.qty,
+              note: item.note || '',
+              status: item.status
+            }));
+            setOrderItems(existingItems);
+          }
         }
       } catch (err) {
         console.error('Failed to load order data:', err);
@@ -136,7 +161,7 @@ const OrderDetail = () => {
       }
     };
     fetchData();
-  }, [tableId, user, navigate]);
+  }, [tableId, orderId, isReadOnly, user, navigate]);
 
   const filteredFoods = foods.filter((food) => {
     const matchesTab = food.type === activeTab;
@@ -274,6 +299,84 @@ const OrderDetail = () => {
     }
   };
 
+  const handlePrintBill = () => {
+    const doc = new jsPDF({
+      unit: 'mm',
+      format: [104, 200], // Standard receipt size
+    });
+
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('id-ID', {
+      day: '2-digit', month: '2-digit', year: 'numeric'
+    }).replace(/\//g, '-') + ' ' + now.toLocaleTimeString('id-id', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    const serverName = user?.name || 'Server';
+    const tableNumber = tableInfo?.table_number || tableId;
+
+    // Use Courier for fixed-width alignment
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(10);
+
+    let y = 10;
+    const line = (text) => {
+      doc.text(text, 5, y);
+      y += 5;
+    };
+
+    const center = (text) => {
+      const textWidth = doc.getTextWidth(text);
+      doc.text(text, (104 - textWidth) / 2, y);
+      y += 5;
+    };
+
+    line('============================================');
+    center('RESTAURANT POS');
+    line('============================================');
+    line(`Date  : ${formattedDate}`);
+    line(`Table : ${tableNumber}`);
+    line(`Server: ${serverName}`);
+    line('============================================');
+    line('ITEM                QTY     PRICE      TOTAL');
+    line('--------------------------------------------');
+
+    let subtotal = 0;
+    orderItems.forEach(({ food, quantity, status }) => {
+      if (status === 'cancelled') return;
+
+      const rowTotal = food.price * quantity;
+      subtotal += rowTotal;
+
+      // Truncate food name to 19 characters
+      const foodName = food.name.substring(0, 19).padEnd(19, ' ');
+      const qty = quantity.toString().padStart(3, ' ');
+      const price = food.price.toLocaleString('id-ID').padStart(9, ' ');
+      const dispTotal = rowTotal.toLocaleString('id-ID').padStart(10, ' ');
+
+      line(`${foodName} ${qty} ${price} ${dispTotal}`);
+    });
+
+    const tax = subtotal * 0.1;
+    const grandTotal = subtotal + tax;
+
+    line('--------------------------------------------');
+    line(`${"SUBTOTAL".padEnd(34, ' ')}${subtotal.toLocaleString('id-ID').padStart(10, ' ')}`);
+    line(`${"TAX (10%)".padEnd(34, ' ')}${tax.toLocaleString('id-ID').padStart(10, ' ')}`);
+    line(`${"GRAND TOTAL".padEnd(34, ' ')}${grandTotal.toLocaleString('id-ID').padStart(10, ' ')}`);
+    line('============================================');
+    y += 2;
+    center('TERIMA KASIH ATAS KUNJUNGANNYA');
+    line('============================================');
+
+    const orderNumberForFile = isReadOnly
+      ? (orderItems.length > 0 ? tableInfo?.active_order?.order_number : orderId)
+      : (tableInfo?.active_order?.order_number || tableNumber);
+
+    // In read-only mode, we fetched the specific order, let's use its number
+    // Actually, in line 100 we set activeOrderId = order.id. 
+    // The order object itself has order_number.
+
+    doc.save(`Bill-${tableInfo?.active_order?.order_number || orderNumberForFile}.pdf`);
+  };
 
   const formatCurrency = (amount) =>
     new Intl.NumberFormat('id-ID', {
@@ -333,7 +436,7 @@ const OrderDetail = () => {
       }}>
         {/* Left: Back button, Table Info, New Order Badge */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <IconButton onClick={() => navigate('/dashboard')} size="small" sx={{ bgcolor: '#f1f5f9', '&:hover': { bgcolor: '#e2e8f0' } }}>
+          <IconButton onClick={handleBack} size="small" sx={{ bgcolor: '#f1f5f9', '&:hover': { bgcolor: '#e2e8f0' } }}>
             <ArrowBack fontSize="small" sx={{ color: '#1e293b' }} />
           </IconButton>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
@@ -341,9 +444,9 @@ const OrderDetail = () => {
               Table {tableInfo?.table_number || tableId}
             </Typography>
             <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600, fontSize: '0.75rem' }}>
-              {tableInfo?.status === 'available' && "New Order"}
-              {tableInfo?.status === 'occupied' && (tableInfo.active_order?.order_number || "Active Order")}
-              {tableInfo?.status === 'reserved' && "Reserved"}
+              {isReadOnly ? (tableInfo?.active_order?.order_number) : (tableInfo?.status === 'available' && "New Order")}
+              {!isReadOnly && tableInfo?.status === 'occupied' && (tableInfo.active_order?.order_number || "Active Order")}
+              {!isReadOnly && tableInfo?.status === 'reserved' && "Reserved"}
             </Typography>
           </Box>
         </Box>
@@ -414,120 +517,122 @@ const OrderDetail = () => {
       </Box>
 
       {/* ── MAIN CONTENT ── */}
-      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', justifyContent: isReadOnly ? 'center' : 'flex-start' }}>
         {/* ── LEFT PANEL: Menu List ── */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 3, overflow: 'hidden', borderRight: '1px solid #e2e8f0' }}>
-          {/* Category Tabs */}
-          <Box sx={{ mb: 2, borderBottom: '1px solid #e2e8f0' }}>
-            <Tabs
-              value={activeTab}
-              onChange={(_, v) => setActiveTab(v)}
-              variant="scrollable"
-              scrollButtons="auto"
-              sx={{
-                minHeight: 40,
-                '& .MuiTabs-indicator': { bgcolor: '#1e293b', height: 2 },
-                '& .MuiTab-root': {
-                  minHeight: 40,
-                  py: 0,
-                  px: 1.5,
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  fontSize: '0.85rem',
-                  color: '#64748b',
-                  '&.Mui-selected': { color: '#1e293b' },
-                },
-              }}
-            >
-              {FOOD_TYPES.map((t) => (
-                <Tab key={t.value} value={t.value} label={t.label} />
-              ))}
-            </Tabs>
-          </Box>
-
-          {/* Search */}
-          <TextField
-            fullWidth
-            placeholder="Search menu items..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            size="small"
-            sx={{
-              mb: 2,
-              '& .MuiOutlinedInput-root': {
-                bgcolor: 'white',
-                borderRadius: 2,
-                fontSize: '0.875rem',
-                '& fieldset': { borderColor: '#e2e8f0' },
-                '&:hover fieldset': { borderColor: '#cbd5e1' },
-              },
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search sx={{ color: '#94a3b8', fontSize: 18 }} />
-                </InputAdornment>
-              ),
-            }}
-          />
-
-          {/* Food List */}
-          <Box sx={{ flex: 1, overflowY: 'auto', pr: 2 }}>
-            {filteredFoods.map((food) => (
-              <Paper
-                key={food.id}
-                elevation={0}
+        {!isReadOnly && (
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 3, overflow: 'hidden', borderRight: '1px solid #e2e8f0' }}>
+            {/* Category Tabs */}
+            <Box sx={{ mb: 2, borderBottom: '1px solid #e2e8f0' }}>
+              <Tabs
+                value={activeTab}
+                onChange={(_, v) => setActiveTab(v)}
+                variant="scrollable"
+                scrollButtons="auto"
                 sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  p: 2,
-                  mb: 1.5,
-                  borderRadius: 2,
-                  border: '1px solid #e2e8f0',
-                  bgcolor: 'white',
-                  '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
-                  transition: 'all 0.15s',
+                  minHeight: 40,
+                  '& .MuiTabs-indicator': { bgcolor: '#1e293b', height: 2 },
+                  '& .MuiTab-root': {
+                    minHeight: 40,
+                    py: 0,
+                    px: 1.5,
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    fontSize: '0.85rem',
+                    color: '#64748b',
+                    '&.Mui-selected': { color: '#1e293b' },
+                  },
                 }}
               >
-                <Box sx={{ flex: 1, mr: 2 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b', mb: 0.3 }}>
-                    {food.name}
-                  </Typography>
-                  {food.description && (
-                    <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 0.5 }} noWrap>
-                      {food.description}
-                    </Typography>
-                  )}
-                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
-                    {formatCurrency(food.price)}
-                  </Typography>
-                </Box>
-                <IconButton
-                  onClick={() => handleAddItem(food)}
-                  size="small"
+                {FOOD_TYPES.map((t) => (
+                  <Tab key={t.value} value={t.value} label={t.label} />
+                ))}
+              </Tabs>
+            </Box>
+
+            {/* Search */}
+            <TextField
+              fullWidth
+              placeholder="Search menu items..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              size="small"
+              sx={{
+                mb: 2,
+                '& .MuiOutlinedInput-root': {
+                  bgcolor: 'white',
+                  borderRadius: 2,
+                  fontSize: '0.875rem',
+                  '& fieldset': { borderColor: '#e2e8f0' },
+                  '&:hover fieldset': { borderColor: '#cbd5e1' },
+                },
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search sx={{ color: '#94a3b8', fontSize: 18 }} />
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            {/* Food List */}
+            <Box sx={{ flex: 1, overflowY: 'auto', pr: 2 }}>
+              {filteredFoods.map((food) => (
+                <Paper
+                  key={food.id}
+                  elevation={0}
                   sx={{
-                    bgcolor: '#1e293b',
-                    color: 'white',
-                    borderRadius: 1.5,
-                    width: 36,
-                    height: 36,
-                    '&:hover': { bgcolor: '#0f172a' },
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    p: 2,
+                    mb: 1.5,
+                    borderRadius: 2,
+                    border: '1px solid #e2e8f0',
+                    bgcolor: 'white',
+                    '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
+                    transition: 'all 0.15s',
                   }}
                 >
-                  <Add fontSize="small" />
-                </IconButton>
-              </Paper>
-            ))}
+                  <Box sx={{ flex: 1, mr: 2 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b', mb: 0.3 }}>
+                      {food.name}
+                    </Typography>
+                    {food.description && (
+                      <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 0.5 }} noWrap>
+                        {food.description}
+                      </Typography>
+                    )}
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                      {formatCurrency(food.price)}
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    onClick={() => handleAddItem(food)}
+                    size="small"
+                    sx={{
+                      bgcolor: '#1e293b',
+                      color: 'white',
+                      borderRadius: 1.5,
+                      width: 36,
+                      height: 36,
+                      '&:hover': { bgcolor: '#0f172a' },
+                    }}
+                  >
+                    <Add fontSize="small" />
+                  </IconButton>
+                </Paper>
+              ))}
+            </Box>
           </Box>
-        </Box>
+        )}
 
         {/* ── RIGHT PANEL: Current Order ── */}
-        <Box sx={{ width: 700, display: 'flex', flexDirection: 'column', p: 3, bgcolor: 'white' }}>
+        <Box sx={{ width: isReadOnly ? 800 : 700, display: 'flex', flexDirection: 'column', p: 3, bgcolor: 'white' }}>
           {/* Order Header */}
           <Box sx={{ mb: 3 }}>
             <Typography variant="h6" sx={{ fontWeight: 800, color: '#1e293b' }}>
-              Current Order
+              {isReadOnly ? "Order" : "Current Order"}
             </Typography>
             <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 500 }}>
               Table {tableInfo?.table_number || tableId} &bull; {today}
@@ -545,7 +650,9 @@ const OrderDetail = () => {
                 </Typography>
               </Box>
             ) : (
-              orderItems.map(({ food, quantity, note, status }, index) => (
+              orderItems
+                .filter(item => !isReadOnly || item.status === 'confirmed')
+                .map(({ food, quantity, note, status }, index) => (
                 <Box key={`${food.id}-${status}-${index}`} sx={{ mb: 2.5 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                     <Box>
@@ -573,7 +680,7 @@ const OrderDetail = () => {
                     </Typography>
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, height: 32 }}>
-                    {(status === 'new' || status === 'draft') ? (
+                    {(status === 'new' || status === 'draft') && !isReadOnly ? (
                       <>
                         <IconButton
                           size="small"
@@ -684,6 +791,7 @@ const OrderDetail = () => {
                     variant="outlined"
                     startIcon={<Print sx={{ fontSize: 16 }} />}
                     disabled={!showPrintBill || isSubmitting}
+                    onClick={handlePrintBill}
                     sx={{
                       py: 1.5,
                       borderRadius: 2,
@@ -701,7 +809,7 @@ const OrderDetail = () => {
               </>
             ) : (
               /* Original 2-Button Layout for Drafts/Initial */
-              showFooterButtons && (
+              !isReadOnly && showFooterButtons && (
                 <Box sx={{ display: 'flex', gap: 1.5 }}>
                   <Button
                     fullWidth

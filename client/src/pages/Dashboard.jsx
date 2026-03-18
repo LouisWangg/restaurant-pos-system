@@ -60,6 +60,16 @@ const Dashboard = () => {
         return;
       }
       navigate('/foods');
+    } else if (next === 'order') {
+      if (user?.role !== 'Pelayan') {
+        setSnackbar({
+          open: true,
+          message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
+          severity: 'error',
+        });
+        return;
+      }
+      navigate('/orders');
     } else {
       setView(next);
     }

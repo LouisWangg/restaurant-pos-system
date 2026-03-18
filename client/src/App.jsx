@@ -5,6 +5,7 @@ import theme from './theme';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import FoodManagement from './pages/FoodManagement';
+import OrderList from './pages/OrderList';
 import OrderDetail from './pages/OrderDetail';
 
 function App() {
@@ -16,7 +17,9 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/foods" element={<FoodManagement />} />
+          <Route path="/orders" element={<OrderList />} />
           <Route path="/orders/:tableId" element={<OrderDetail />} />
+          <Route path="/orders/view/:orderId" element={<OrderDetail />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Router>

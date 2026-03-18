@@ -124,6 +124,9 @@ const FoodManagement = () => {
     if (next === 'floor') {
       navigate('/dashboard');
     }
+    if (next === 'order') {
+      navigate('/orders');
+    }
   };
 
   const filteredFoods = foods.filter(food => {
