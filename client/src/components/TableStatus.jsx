@@ -1,12 +1,7 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 
-const statuses = [
-  { label: 'Available', color: '#22c55e' },
-  { label: 'Occupied', color: '#ef4444' },
-  { label: 'Reserved', color: '#f59e0b' },
-  { label: 'Inactive', color: '#64748b' },
-];
+import { TABLE_STATUS_LIST } from '../constants/tableStatus';
 
 const TableStatus = () => {
   return (
@@ -15,7 +10,7 @@ const TableStatus = () => {
         Table Status
       </Typography>
       <Box sx={{ display: 'flex', gap: 3 }}>
-        {statuses.map((status) => (
+        {TABLE_STATUS_LIST.map((status) => (
           <Box key={status.label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Box
               sx={{

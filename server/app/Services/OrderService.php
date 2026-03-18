@@ -16,18 +16,18 @@ class OrderService
     public function createOrder(array $data)
     {
         return DB::transaction(function () use ($data) {
-            // 1. Check if there's an active 'open' order for this table
+            // 1. Periksa apakah ada pesanan 'open' yang aktif untuk meja ini
             $order = Order::where('table_id', $data['table_id'])
                 ->where('status', 'open')
                 ->first();
 
             if ($order) {
-                // Update existing order
+                // Update pesanan yang ada
                 $order->update([
                     'total_price' => $data['total_price'],
                 ]);
             } else {
-                // Create new order
+                // Buat pesanan baru
                 $orderNumber = $this->generateOrderNumber();
                 $order = Order::create([
                     'order_number' => $orderNumber,
@@ -39,12 +39,12 @@ class OrderService
                 ]);
             }
 
-            // 2. Handle Order Items
+            // 2. Tangani Item Pesanan
             foreach ($data['items'] as $itemData) {
                 // Logic: 
                 // - Jika item memiliki id, berarti item lama yang perlu diupdate (misal qty/note).
                 // - Jika item tidak memiliki id, berarti item baru ('new').
-                
+
                 if (isset($itemData['id'])) {
                     $item = OrderItem::find($itemData['id']);
                     // Safeguard: Jika item sudah cancelled, jangan diupdate tapi buat baru
@@ -52,10 +52,10 @@ class OrderService
                         $item->update([
                             'qty' => $itemData['qty'],
                             'note' => $itemData['note'] ?? null,
-                            'status' => $data['item_status'], // Update status to 'confirmed' if clicked Send to Kitchen
+                            'status' => $data['item_status'], // Update status ke 'confirmed' jika tombol Kirim ke Dapur diklik
                         ]);
                     } else {
-                        // Create new record if item doesn't exist or is cancelled
+                        // Buat data baru jika item tidak ditemukan atau statusnya cancelled
                         OrderItem::create([
                             'order_id' => $order->id,
                             'food_id' => $itemData['food_id'],
@@ -77,7 +77,7 @@ class OrderService
                 }
             }
 
-            // 3. Update Table Status to 'occupied'
+            // 3. Update Status Meja menjadi 'occupied'
             $table = RestaurantTable::find($data['table_id']);
             if ($table) {
                 $table->status = 'occupied';
@@ -89,7 +89,7 @@ class OrderService
     }
 
     /**
-     * Update order item status
+     * Memperbarui status item pesanan
      */
     public function updateOrderItemStatus(int $id, string $status)
     {
@@ -101,13 +101,13 @@ class OrderService
         $item->status = $status;
         $item->save();
 
-        // Recalculate Order total_price
+        // Hitung ulang total_price pesanan
         $order = Order::find($item->order_id);
         if ($order) {
             $newTotal = OrderItem::where('order_id', $order->id)
                 ->where('status', '!=', 'cancelled')
                 ->sum(DB::raw('qty * price'));
-            
+
             $order->total_price = $newTotal;
             $order->save();
         }
@@ -116,7 +116,7 @@ class OrderService
     }
 
     /**
-     * Generate running order number: ORD-YYYYMMDD-XXXX
+     * Menghasilkan nomor pesanan baru: ORD-YYYYMMDD-XXXX
      */
     private function generateOrderNumber()
     {
@@ -141,21 +141,21 @@ class OrderService
     public function closeOrder(int $orderId, int $userId)
     {
         $order = Order::findOrFail($orderId);
-        
+
         $order->update([
             'status' => 'closed',
             'closed_at' => now(),
             'closed_by' => $userId,
         ]);
 
-        // Release the table
+        // Lepaskan meja (set ke available)
         $order->table->update(['status' => 'available']);
 
         return $order;
     }
 
     /**
-     * Get all orders with optional search and status filtering
+     * Mendapatkan semua pesanan dengan filter pencarian dan status opsional
      */
     public function getAllOrders($search = null, $status = null)
     {
@@ -166,25 +166,54 @@ class OrderService
         }
 
         if ($search) {
-            $query->where(function($q) use ($search) {
+            $query->where(function ($q) use ($search) {
                 $q->where('order_number', 'like', "%{$search}%")
-                  ->orWhereHas('table', function($t) use ($search) {
-                      $t->where('table_number', 'like', "%{$search}%");
-                  });
+                    ->orWhereHas('table', function ($t) use ($search) {
+                        $t->where('table_number', 'like', "%{$search}%");
+                    });
             });
         }
 
-        // Sort by status (open first) then by created_at desc
+        // Urutkan berdasarkan status (open dulu) kemudian created_at terbaru
         return $query->orderByRaw("status = 'open' DESC")
-                     ->orderBy('created_at', 'DESC')
-                     ->get();
+            ->orderBy('created_at', 'DESC')
+            ->get();
     }
 
     /**
-     * Get order by ID with details
+     * Mendapatkan data pesanan berdasarkan ID beserta detailnya
      */
     public function getOrderById(int $id)
     {
         return Order::with(['table', 'items.food', 'user'])->findOrFail($id);
+    }
+
+    /**
+     * Sinkronisasi harga menu di semua pesanan yang masih 'open'
+     */
+    public function syncFoodPrice(int $foodId, float $newPrice)
+    {
+        $affectedOrderIds = OrderItem::where('food_id', $foodId)
+            ->whereHas('order', function ($query) {
+                $query->where('status', 'open');
+            })
+            ->pluck('order_id')
+            ->unique();
+
+        if ($affectedOrderIds->isEmpty()) {
+            return;
+        }
+
+        OrderItem::where('food_id', $foodId)
+            ->whereIn('order_id', $affectedOrderIds)
+            ->update(['price' => $newPrice]);
+
+        foreach ($affectedOrderIds as $orderId) {
+            $newTotal = OrderItem::where('order_id', $orderId)
+                ->where('status', '!=', 'cancelled')
+                ->sum(DB::raw('qty * price'));
+
+            Order::where('id', $orderId)->update(['total_price' => $newTotal]);
+        }
     }
 }

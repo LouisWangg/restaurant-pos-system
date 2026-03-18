@@ -11,7 +11,9 @@ class RestaurantTableService
      */
     public function getAllTables()
     {
-        return RestaurantTable::orderBy('table_number', 'asc')->get();
+        return RestaurantTable::with('activeOrder.items')
+            ->orderBy('table_number', 'asc')
+            ->get();
     }
 
     /**

@@ -126,7 +126,10 @@ class FoodSeeder extends Seeder
         ];
 
         foreach ($foods as $food) {
-            Food::create($food);
+            Food::updateOrCreate(
+                ['name' => $food['name']],
+                $food
+            );
         }
     }
 }

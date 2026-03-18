@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Food;
 use App\Services\FoodService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -18,17 +19,21 @@ class FoodController extends Controller
     }
 
     /**
-     * Display a listing of the resource.
+     * Mendapatkan daftar semua menu makanan
      */
-    public function index()
+    public function index(): JsonResponse
     {
-        return response()->json($this->foodService->getAllFoods());
+        $foods = $this->foodService->getAllFoods();
+        return response()->json([
+            'status' => 'success',
+            'data' => $foods
+        ]);
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Menyimpan menu makanan baru
      */
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
@@ -38,18 +43,32 @@ class FoodController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'status' => 'error',
+                'errors' => $validator->errors()
+            ], 422);
         }
 
-        $food = $this->foodService->createFood($request->all());
+        try {
+            $food = $this->foodService->createFood($request->all());
 
-        return response()->json($food, 201);
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Menu berhasil ditambahkan',
+                'data' => $food
+            ], 201);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal menambahkan menu: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
-     * Update the specified resource in storage.
+     * Memperbarui data menu makanan
      */
-    public function update(Request $request, Food $food)
+    public function update(Request $request, Food $food): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
@@ -59,21 +78,45 @@ class FoodController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'status' => 'error',
+                'errors' => $validator->errors()
+            ], 422);
         }
 
-        $food = $this->foodService->updateFood($food, $request->all());
+        try {
+            $food = $this->foodService->updateFood($food, $request->all());
 
-        return response()->json($food);
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Menu berhasil diperbarui',
+                'data' => $food
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal memperbarui menu: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Menghapus menu makanan
      */
-    public function destroy(Food $food)
+    public function destroy(Food $food): JsonResponse
     {
-        $this->foodService->deleteFood($food);
+        try {
+            $this->foodService->deleteFood($food);
 
-        return response()->json(null, 204);
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Menu berhasil dihapus'
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal menghapus menu: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

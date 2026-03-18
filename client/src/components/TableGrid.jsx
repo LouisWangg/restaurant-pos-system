@@ -3,20 +3,15 @@ import { Box, Paper, Typography, Dialog, DialogTitle, DialogContent, DialogActio
 import { useNavigate } from 'react-router-dom';
 import tableService from '../services/tableService';
 import { useAuth } from '../context/AuthContext';
+import { useSnackbar } from '../context/SnackbarContext';
+import { STATUS_COLORS } from '../constants/tableStatus';
 
-const getStatusColor = (status) => {
-  switch (status) {
-    case 'available': return '#22c55e';
-    case 'occupied': return '#ef4444';
-    case 'reserved': return '#f59e0b';
-    case 'inactive': return '#64748b';
-    default: return '#22c55e';
-  }
-};
+const getStatusColor = (status) => STATUS_COLORS[status] || STATUS_COLORS.available;
 
-const TableGrid = ({ tables, onTableUpdate, setSnackbar }) => {
+const TableGrid = ({ tables, onTableUpdate }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { showSnackbar } = useSnackbar();
   const [selectedTable, setSelectedTable] = useState(null);
 
   const handleTableClick = (table) => {
@@ -26,25 +21,28 @@ const TableGrid = ({ tables, onTableUpdate, setSnackbar }) => {
     const isPelayan = user?.role === 'Pelayan';
     const isStaff = isKasir || isPelayan;
 
-    const showError = (message) => {
-      setSnackbar?.({
-        open: true,
-        message,
-        severity: 'error'
-      });
-    };
-
     if (!isStaff) {
-      showError('Fitur tersebut hanya dapat diakses oleh Pelayan dan Kasir');
+      showSnackbar('Fitur tersebut hanya dapat diakses oleh Pelayan dan Kasir', 'error');
       return;
     }
 
     if (isKasir && ['available', 'reserved'].includes(table.status)) {
-      showError('Halaman tersebut hanya dapat diakses oleh Pelayan');
+      showSnackbar('Halaman tersebut hanya dapat diakses oleh Pelayan', 'error');
       return;
     }
 
     if (['occupied', 'reserved'].includes(table.status)) {
+      if (isKasir && table.status === 'occupied') {
+        const hasConfirmedItems = table.active_order?.items?.some(
+          item => item.status === 'confirmed'
+        );
+
+        if (!hasConfirmedItems) {
+          showSnackbar('Belum ada pesanan yang dikonfirmasi. Halaman ini hanya dapat diakses oleh Pelayan.', 'error');
+          return;
+        }
+      }
+
       navigate(`/orders/${table.id}`);
       return;
     }

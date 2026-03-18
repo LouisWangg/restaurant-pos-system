@@ -14,13 +14,12 @@ class RestaurantTableSeeder extends Seeder
     public function run(): void
     {
         for ($i = 1; $i <= 24; $i++) {
-            RestaurantTable::create([
-                'table_number' => $i,
-                'status' => 'available'
-            ]);
+            RestaurantTable::updateOrCreate(
+                ['table_number' => $i],
+                ['status' => 'available']
+            );
         }
 
-        // Randomly set 3 tables to inactive
         RestaurantTable::inRandomOrder()->limit(3)->update(['status' => 'inactive']);
     }
 }

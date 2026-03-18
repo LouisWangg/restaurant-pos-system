@@ -15,7 +15,6 @@ import {
   Menu,
   MenuItem,
   ListItemIcon,
-  Snackbar,
   Alert,
   Dialog,
   DialogTitle,
@@ -31,11 +30,11 @@ import {
   Cancel,
   Delete,
   Send,
-  SaveAlt,
   Print,
   CheckCircle,
   Logout,
-  EditNote
+  EditNote,
+  SaveAlt
 } from '@mui/icons-material';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
@@ -43,6 +42,7 @@ import foodService from '../services/foodService';
 import tableService from '../services/tableService';
 import orderService from '../services/orderService';
 import { useAuth } from '../context/AuthContext';
+import { useSnackbar } from '../context/SnackbarContext';
 
 const FOOD_TYPES = [
   { value: 'appetizer', label: 'Appetizers' },
@@ -57,7 +57,10 @@ const OrderDetail = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { showSnackbar } = useSnackbar();
   const isReadOnly = !!orderId;
+  const isKasir = user?.role === 'Kasir';
+  const isRestricted = isKasir && !isReadOnly;
 
   const handleBack = () => {
     if (location.state?.from) {
@@ -88,14 +91,11 @@ const OrderDetail = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('appetizer');
   const [searchQuery, setSearchQuery] = useState('');
-  const [orderItems, setOrderItems] = useState([]); // { food, quantity }
+  const [orderItems, setOrderItems] = useState([]);
   const [tableInfo, setTableInfo] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [noteModal, setNoteModal] = useState({ open: false, itemIndex: null, note: '' });
   const [activeOrderId, setActiveOrderId] = useState(null);
-
-  const handleCloseSnackbar = () => setSnackbar(prev => ({ ...prev, open: false }));
 
 
   const today = new Date().toLocaleDateString('id-ID', {
@@ -113,6 +113,7 @@ const OrderDetail = () => {
           const existingItems = order.items.map(item => ({
             id: item.id,
             food: item.food,
+            price: item.price,
             quantity: item.qty,
             note: item.note || '',
             status: item.status
@@ -126,20 +127,15 @@ const OrderDetail = () => {
 
           const tbl = tableData.data || tableData;
 
-          // Role-based Access Control for Kasir
           if (user?.role === 'Kasir' && tbl.status !== 'occupied') {
-            setSnackbar({
-              open: true,
-              message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
-              severity: 'error'
-            });
+            showSnackbar('Halaman tersebut hanya dapat diakses oleh Pelayan', 'error');
             setTimeout(() => {
               navigate('/dashboard');
             }, 4000);
             return;
           }
 
-          setFoods(foodsData);
+          setFoods(foodsData.data || foodsData);
           setTableInfo(tbl);
 
           if ((tbl.status === 'occupied' || tbl.status === 'reserved') && tbl.active_order) {
@@ -147,6 +143,7 @@ const OrderDetail = () => {
             const existingItems = tbl.active_order.items.map(item => ({
               id: item.id,
               food: item.food,
+              price: item.price,
               quantity: item.qty,
               note: item.note || '',
               status: item.status
@@ -161,7 +158,7 @@ const OrderDetail = () => {
       }
     };
     fetchData();
-  }, [tableId, orderId, isReadOnly, user, navigate]);
+  }, [tableId, orderId, isReadOnly, user]);
 
   const filteredFoods = foods.filter((food) => {
     const matchesTab = food.type === activeTab;
@@ -181,7 +178,7 @@ const OrderDetail = () => {
             : item
         );
       }
-      return [...prev, { food, quantity: 1, note: '', status: 'new' }];
+      return [...prev, { food, price: food.price, quantity: 1, note: '', status: 'new' }];
     });
   };
 
@@ -200,27 +197,26 @@ const OrderDetail = () => {
   const handleItemAction = async (index) => {
     const item = orderItems[index];
 
-    if (item.status === 'new') {
-      setOrderItems((prev) => prev.filter((_, i) => i !== index));
-      return;
-    }
+    switch (item.status) {
+      case 'new':
+        setOrderItems(prev => prev.filter((_, i) => i !== index));
+        break;
 
-    if (item.status === 'draft') {
-      try {
-        await orderService.updateOrderItemStatus(item.id, 'cancelled');
-        setOrderItems((prev) =>
-          prev.map((it, i) =>
-            i === index ? { ...it, status: 'cancelled' } : it
-          )
-        );
-      } catch (err) {
-        console.error('Failed to cancel item:', err);
-        setSnackbar({
-          open: true,
-          message: 'Gagal membatalkan item: ' + (err.response?.data?.message || err.message),
-          severity: 'error'
-        });
-      }
+      case 'draft':
+        try {
+          await orderService.updateOrderItemStatus(item.id, 'cancelled');
+          setOrderItems(prev =>
+            prev.map((it, i) =>
+              i === index ? { ...it, status: 'cancelled' } : it
+            )
+          );
+        } catch (err) {
+          showSnackbar('Gagal membatalkan item', 'error');
+        }
+        break;
+
+      default:
+        break;
     }
   };
 
@@ -235,10 +231,10 @@ const OrderDetail = () => {
         items: orderItems
           .filter((item) => item.status !== 'cancelled')
           .map((item) => ({
-            id: item.id || null, // Include ID for existing items
+            id: item.id || null,
             food_id: item.food.id,
             qty: item.quantity,
-            price: item.food.price,
+            price: item.price,
             note: item.note,
           })),
         item_status: itemStatus,
@@ -249,7 +245,6 @@ const OrderDetail = () => {
 
       const successMessage = `Pesanan berhasil ${itemStatus === 'confirmed' ? 'dikonfirmasi' : 'disimpan sebagai draft'}!`;
 
-      // Navigate to dashboard immediately and pass snackbar info via state
       navigate('/dashboard', {
         state: {
           snackbar: {
@@ -262,11 +257,7 @@ const OrderDetail = () => {
 
     } catch (err) {
       console.error('Failed to process order:', err);
-      setSnackbar({
-        open: true,
-        message: 'Gagal memproses pesanan. Silakan coba lagi.',
-        severity: 'error'
-      });
+      showSnackbar('Gagal memproses pesanan. Silakan coba lagi.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -289,11 +280,7 @@ const OrderDetail = () => {
       });
     } catch (err) {
       console.error('Failed to close order:', err);
-      setSnackbar({
-        open: true,
-        message: 'Gagal menutup pesanan. Silakan coba lagi.',
-        severity: 'error'
-      });
+      showSnackbar('Gagal menutup pesanan. Silakan coba lagi.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -302,7 +289,7 @@ const OrderDetail = () => {
   const handlePrintBill = () => {
     const doc = new jsPDF({
       unit: 'mm',
-      format: [104, 200], // Standard receipt size
+      format: [104, 200],
     });
 
     const now = new Date();
@@ -313,7 +300,6 @@ const OrderDetail = () => {
     const serverName = user?.name || 'Server';
     const tableNumber = tableInfo?.table_number || tableId;
 
-    // Use Courier for fixed-width alignment
     doc.setFont('courier', 'normal');
     doc.setFontSize(10);
 
@@ -340,19 +326,18 @@ const OrderDetail = () => {
     line('--------------------------------------------');
 
     let subtotal = 0;
-    orderItems.forEach(({ food, quantity, status }) => {
+    orderItems.forEach(({ food, price, quantity, status }) => {
       if (status === 'cancelled') return;
 
-      const rowTotal = food.price * quantity;
+      const rowTotal = price * quantity;
       subtotal += rowTotal;
 
-      // Truncate food name to 19 characters
       const foodName = food.name.substring(0, 19).padEnd(19, ' ');
       const qty = quantity.toString().padStart(3, ' ');
-      const price = food.price.toLocaleString('id-ID').padStart(9, ' ');
+      const priceVal = price.toLocaleString('id-ID').padStart(9, ' ');
       const dispTotal = rowTotal.toLocaleString('id-ID').padStart(10, ' ');
 
-      line(`${foodName} ${qty} ${price} ${dispTotal}`);
+      line(`${foodName} ${qty} ${priceVal} ${dispTotal}`);
     });
 
     const tax = subtotal * 0.1;
@@ -371,10 +356,6 @@ const OrderDetail = () => {
       ? (orderItems.length > 0 ? tableInfo?.active_order?.order_number : orderId)
       : (tableInfo?.active_order?.order_number || tableNumber);
 
-    // In read-only mode, we fetched the specific order, let's use its number
-    // Actually, in line 100 we set activeOrderId = order.id. 
-    // The order object itself has order_number.
-
     doc.save(`Bill-${tableInfo?.active_order?.order_number || orderNumberForFile}.pdf`);
   };
 
@@ -386,7 +367,7 @@ const OrderDetail = () => {
     }).format(amount);
 
   const total = orderItems.reduce(
-    (sum, item) => (item.status === 'cancelled' ? sum : sum + item.food.price * item.quantity),
+    (sum, item) => (item.status === 'cancelled' ? sum : sum + item.price * item.quantity),
     0
   );
 
@@ -423,7 +404,6 @@ const OrderDetail = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: '#f8fafc', overflow: 'hidden' }}>
-      {/* ── TOP NAVBAR ── */}
       <Box sx={{
         display: 'flex',
         alignItems: 'center',
@@ -434,7 +414,7 @@ const OrderDetail = () => {
         borderBottom: '1px solid',
         borderColor: '#e2e8f0',
       }}>
-        {/* Left: Back button, Table Info, New Order Badge */}
+        {/* Button Back, Info Meja, dan Badge Order */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <IconButton onClick={handleBack} size="small" sx={{ bgcolor: '#f1f5f9', '&:hover': { bgcolor: '#e2e8f0' } }}>
             <ArrowBack fontSize="small" sx={{ color: '#1e293b' }} />
@@ -451,7 +431,7 @@ const OrderDetail = () => {
           </Box>
         </Box>
 
-        {/* Right: User Info */}
+        {/* Info User */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {user && (
             <>
@@ -516,12 +496,11 @@ const OrderDetail = () => {
         </Box>
       </Box>
 
-      {/* ── MAIN CONTENT ── */}
-      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', justifyContent: isReadOnly ? 'center' : 'flex-start' }}>
-        {/* ── LEFT PANEL: Menu List ── */}
-        {!isReadOnly && (
+      {/* Left Panel */}
+      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', justifyContent: (isReadOnly || isRestricted) ? 'center' : 'flex-start' }}>
+        {/*List Menu */}
+        {!isReadOnly && !isRestricted && (
           <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 3, overflow: 'hidden', borderRight: '1px solid #e2e8f0' }}>
-            {/* Category Tabs */}
             <Box sx={{ mb: 2, borderBottom: '1px solid #e2e8f0' }}>
               <Tabs
                 value={activeTab}
@@ -549,7 +528,6 @@ const OrderDetail = () => {
               </Tabs>
             </Box>
 
-            {/* Search */}
             <TextField
               fullWidth
               placeholder="Search menu items..."
@@ -575,7 +553,6 @@ const OrderDetail = () => {
               }}
             />
 
-            {/* Food List */}
             <Box sx={{ flex: 1, overflowY: 'auto', pr: 2 }}>
               {filteredFoods.map((food) => (
                 <Paper
@@ -627,12 +604,12 @@ const OrderDetail = () => {
           </Box>
         )}
 
-        {/* ── RIGHT PANEL: Current Order ── */}
-        <Box sx={{ width: isReadOnly ? 800 : 700, display: 'flex', flexDirection: 'column', p: 3, bgcolor: 'white' }}>
+        {/* Right Panel */}
+        <Box sx={{ width: (isReadOnly || isRestricted) ? 800 : 700, display: 'flex', flexDirection: 'column', p: 3, bgcolor: 'white' }}>
           {/* Order Header */}
           <Box sx={{ mb: 3 }}>
             <Typography variant="h6" sx={{ fontWeight: 800, color: '#1e293b' }}>
-              {isReadOnly ? "Order" : "Current Order"}
+              {isReadOnly || isRestricted ? "Order" : "Current Order"}
             </Typography>
             <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 500 }}>
               Table {tableInfo?.table_number || tableId} &bull; {today}
@@ -651,83 +628,83 @@ const OrderDetail = () => {
               </Box>
             ) : (
               orderItems
-                .filter(item => !isReadOnly || item.status === 'confirmed')
-                .map(({ food, quantity, note, status }, index) => (
-                <Box key={`${food.id}-${status}-${index}`} sx={{ mb: 2.5 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                    <Box>
+                .filter(item => (isReadOnly || isRestricted) ? item.status === 'confirmed' : true)
+                .map(({ food, price, quantity, note, status }, index) => (
+                  <Box key={`${food.id}-${status}-${index}`} sx={{ mb: 2.5 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                          {food.name}
+                          {status === 'confirmed' &&
+                            <Box component="span" sx={{ fontSize: '0.75rem', ml: 1, color: '#64748b', fontWeight: 400 }}>
+                              (Confirmed)
+                            </Box>
+                          }
+                          {status === 'cancelled' &&
+                            <Box component="span" sx={{ fontSize: '0.75rem', ml: 1, color: '#ef4444', fontWeight: 400 }}>
+                              (Cancelled)
+                            </Box>
+                          }
+                        </Typography>
+                        {note && (
+                          <Typography variant="caption" sx={{ color: '#64748b', fontStyle: 'italic', display: 'block' }}>
+                            Note: {note}
+                          </Typography>
+                        )}
+                      </Box>
                       <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
-                        {food.name}
-                        {status === 'confirmed' &&
-                          <Box component="span" sx={{ fontSize: '0.75rem', ml: 1, color: '#64748b', fontWeight: 400 }}>
-                            (Confirmed)
-                          </Box>
-                        }
-                        {status === 'cancelled' &&
-                          <Box component="span" sx={{ fontSize: '0.75rem', ml: 1, color: '#ef4444', fontWeight: 400 }}>
-                            (Cancelled)
-                          </Box>
-                        }
+                        {formatCurrency(price * quantity)}
                       </Typography>
-                      {note && (
-                        <Typography variant="caption" sx={{ color: '#64748b', fontStyle: 'italic', display: 'block' }}>
-                          Note: {note}
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, height: 32 }}>
+                      {(status === 'new' || status === 'draft') && !isReadOnly && !isRestricted ? (
+                        <>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleUpdateQty(index, -1)}
+                            disabled={status === 'draft' && quantity <= 1}
+                            sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
+                          >
+                            <Remove sx={{ fontSize: 14 }} />
+                          </IconButton>
+                          <Typography sx={{ px: 1, minWidth: 24, textAlign: 'center', fontWeight: 600, fontSize: '0.875rem' }}>
+                            {quantity}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleUpdateQty(index, 1)}
+                            sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
+                          >
+                            <Add sx={{ fontSize: 14 }} />
+                          </IconButton>
+                          <Box sx={{ flex: 1 }} />
+                          <IconButton
+                            size="small"
+                            onClick={() => handleOpenNoteModal(index, note)}
+                            sx={{ color: '#94a3b8', '&:hover': { color: '#6366f1' }, mr: 0.5 }}
+                          >
+                            <EditNote sx={{ fontSize: 20 }} />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleItemAction(index)}
+                            sx={{ color: '#94a3b8', '&:hover': { color: '#ef4444' } }}
+                          >
+                            {status === 'new' ? (
+                              <Delete sx={{ fontSize: 16 }} />
+                            ) : (
+                              <Cancel sx={{ fontSize: 16 }} />
+                            )}
+                          </IconButton>
+                        </>
+                      ) : (
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.875rem' }}>
+                          Qty: {quantity}
                         </Typography>
                       )}
                     </Box>
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
-                      {formatCurrency(food.price * quantity)}
-                    </Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, height: 32 }}>
-                    {(status === 'new' || status === 'draft') && !isReadOnly ? (
-                      <>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleUpdateQty(index, -1)}
-                          disabled={status === 'draft' && quantity <= 1}
-                          sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
-                        >
-                          <Remove sx={{ fontSize: 14 }} />
-                        </IconButton>
-                        <Typography sx={{ px: 1, minWidth: 24, textAlign: 'center', fontWeight: 600, fontSize: '0.875rem' }}>
-                          {quantity}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleUpdateQty(index, 1)}
-                          sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 0.3 }}
-                        >
-                          <Add sx={{ fontSize: 14 }} />
-                        </IconButton>
-                        <Box sx={{ flex: 1 }} />
-                        <IconButton
-                          size="small"
-                          onClick={() => handleOpenNoteModal(index, note)}
-                          sx={{ color: '#94a3b8', '&:hover': { color: '#6366f1' }, mr: 0.5 }}
-                        >
-                          <EditNote sx={{ fontSize: 20 }} />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleItemAction(index)}
-                          sx={{ color: '#94a3b8', '&:hover': { color: '#ef4444' } }}
-                        >
-                          {status === 'new' ? (
-                            <Delete sx={{ fontSize: 16 }} />
-                          ) : (
-                            <Cancel sx={{ fontSize: 16 }} />
-                          )}
-                        </IconButton>
-                      </>
-                    ) : (
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.875rem' }}>
-                        Qty: {quantity}
-                      </Typography>
-                    )}
-                  </Box>
-                </Box>
-              ))
+                ))
             )}
           </Box>
 
@@ -741,75 +718,77 @@ const OrderDetail = () => {
             </Typography>
           </Box>
 
-          {/* Action Buttons */}
+          {/* Tombol Action */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             {showOccupiedActions ? (
               <>
-                {/* 3-Button Layout for Occupied + Confirmed */}
-                <Button
-                  fullWidth
-                  variant="contained"
-                  color="error"
-                  startIcon={<CheckCircle sx={{ fontSize: 16 }} />}
-                  disabled={isSubmitting}
-                  onClick={handleCloseOrder}
-                  sx={{
-                    py: 1.5,
-                    borderRadius: 2,
-                    bgcolor: '#ef4444',
-                    fontWeight: 700,
-                    textTransform: 'none',
-                    fontSize: '0.95rem',
-                    '&:hover': { bgcolor: '#dc2626' },
-                  }}
-                >
-                  Close Order
-                </Button>
-
-                <Box sx={{ display: 'flex', gap: 1.5 }}>
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    startIcon={<Send sx={{ fontSize: 16 }} />}
-                    disabled={!hasInteractiveItems || isSubmitting}
-                    onClick={() => handleOrderAction('confirmed')}
-                    sx={{
-                      py: 1.5,
-                      borderRadius: 2,
-                      borderColor: '#e2e8f0',
-                      color: '#475569',
-                      fontWeight: 600,
-                      textTransform: 'none',
-                      '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
-                      '&.Mui-disabled': { borderColor: '#f1f5f9', color: '#cbd5e1' }
-                    }}
-                  >
-                    Send to Kitchen
-                  </Button>
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    startIcon={<Print sx={{ fontSize: 16 }} />}
-                    disabled={!showPrintBill || isSubmitting}
-                    onClick={handlePrintBill}
-                    sx={{
-                      py: 1.5,
-                      borderRadius: 2,
-                      borderColor: '#e2e8f0',
-                      color: '#475569',
-                      fontWeight: 600,
-                      textTransform: 'none',
-                      '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
-                      '&.Mui-disabled': { borderColor: '#f1f5f9', color: '#cbd5e1' }
-                    }}
-                  >
-                    Print Bill
-                  </Button>
-                </Box>
+                {isRestricted ? (
+                  /* Tombol untuk Kasir */
+                  <Box sx={{ display: 'flex', gap: 1.5 }}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      color="error"
+                      startIcon={<CheckCircle sx={{ fontSize: 16 }} />}
+                      disabled={isSubmitting}
+                      onClick={handleCloseOrder}
+                      sx={{ py: 1.5, borderRadius: 2, bgcolor: '#ef4444', fontWeight: 700, textTransform: 'none', fontSize: '0.95rem', '&:hover': { bgcolor: '#dc2626' } }}
+                    >
+                      Close Order
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      startIcon={<Print sx={{ fontSize: 16 }} />}
+                      disabled={!showPrintBill || isSubmitting}
+                      onClick={handlePrintBill}
+                      sx={{ py: 1.5, borderRadius: 2, borderColor: '#e2e8f0', color: '#475569', fontWeight: 600, textTransform: 'none', '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' }, '&.Mui-disabled': { borderColor: '#f1f5f9', color: '#cbd5e1' } }}
+                    >
+                      Print Bill
+                    </Button>
+                  </Box>
+                ) : (
+                  /* Tombol untuk Pelayan */
+                  <>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      color="error"
+                      startIcon={<CheckCircle sx={{ fontSize: 16 }} />}
+                      disabled={isSubmitting}
+                      onClick={handleCloseOrder}
+                      sx={{ py: 1.5, borderRadius: 2, bgcolor: '#ef4444', fontWeight: 700, textTransform: 'none', fontSize: '0.95rem', '&:hover': { bgcolor: '#dc2626' } }}
+                    >
+                      Close Order
+                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1.5 }}>
+                      <Button
+                        fullWidth
+                        variant="outlined"
+                        startIcon={<Send sx={{ fontSize: 16 }} />}
+                        disabled={!hasInteractiveItems || isSubmitting}
+                        onClick={() => handleOrderAction('confirmed')}
+                        sx={{ py: 1.5, borderRadius: 2, borderColor: '#e2e8f0', color: '#475569', fontWeight: 600, textTransform: 'none', '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' }, '&.Mui-disabled': { borderColor: '#f1f5f9', color: '#cbd5e1' } }}
+                      >
+                        Send to Kitchen
+                      </Button>
+                      <Button
+                        fullWidth
+                        variant="outlined"
+                        startIcon={<Print sx={{ fontSize: 16 }} />}
+                        disabled={!showPrintBill || isSubmitting}
+                        onClick={handlePrintBill}
+                        sx={{ py: 1.5, borderRadius: 2, borderColor: '#e2e8f0', color: '#475569', fontWeight: 600, textTransform: 'none', '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' }, '&.Mui-disabled': { borderColor: '#f1f5f9', color: '#cbd5e1' } }}
+                      >
+                        Print Bill
+                      </Button>
+                    </Box>
+                  </>
+                )}
               </>
             ) : (
-              /* Original 2-Button Layout for Drafts/Initial */
-              !isReadOnly && showFooterButtons && (
+              /* Tombol untuk Draft / data awal */
+              !isReadOnly && !isRestricted && showFooterButtons && (
                 <Box sx={{ display: 'flex', gap: 1.5 }}>
                   <Button
                     fullWidth
@@ -855,28 +834,10 @@ const OrderDetail = () => {
         </Box>
       </Box>
 
-      {/* Snackbar Notification */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ top: { xs: 80, sm: 105 } }}
-      >
-        <Alert
-          onClose={handleCloseSnackbar}
-          severity={snackbar.severity}
-          variant="filled"
-          sx={{ minWidth: 250, borderRadius: 2, fontWeight: 600 }}
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-
-      {/* Note Modal */}
+      {/* Modal Catatan */}
       <Dialog
         open={noteModal.open}
-        onClose={() => setNoteModal({ open: false, foodId: null, note: '' })}
+        onClose={() => setNoteModal({ open: false, itemIndex: null, note: '' })}
         PaperProps={{ sx: { borderRadius: 3, minWidth: 400 } }}
       >
         <DialogTitle sx={{ fontWeight: 800, color: '#1e293b' }}>Tambah Catatan</DialogTitle>
@@ -892,7 +853,6 @@ const OrderDetail = () => {
             value={noteModal.note}
             onChange={(e) => {
               const val = e.target.value;
-              // Allow alphanumeric, space, and . , / ( )
               const filtered = val.replace(/[^a-zA-Z0-9\s.,\/()]/g, '');
               setNoteModal({ ...noteModal, note: filtered });
             }}
@@ -904,7 +864,7 @@ const OrderDetail = () => {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button
-            onClick={() => setNoteModal({ open: false, foodId: null, note: '' })}
+            onClick={() => setNoteModal({ open: false, itemIndex: null, note: '' })}
             sx={{ textTransform: 'none', fontWeight: 600, color: '#64748b' }}
           >
             Batal

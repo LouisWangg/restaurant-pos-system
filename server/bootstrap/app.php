@@ -20,11 +20,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/*',
         ]);
 
-        $middleware->alias([
-            'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
-            'role'     => \App\Http\Middleware\CheckRole::class,
-        ]);
-
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -18,11 +18,11 @@ import {
   CircularProgress,
   ToggleButton,
   ToggleButtonGroup,
-  Snackbar,
   Chip
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useSnackbar } from '../context/SnackbarContext';
 import {
   Search,
   Edit,
@@ -45,26 +45,12 @@ const ORDER_STATUS_FILTERS = [
 const OrderList = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
+  const { showSnackbar } = useSnackbar();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Snackbar state
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  const showSnackbar = (message, severity = 'success') => setSnackbar({ open: true, message, severity });
-  const handleCloseSnackbar = () => setSnackbar(prev => ({ ...prev, open: false }));
-
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user || user.role !== 'Pelayan') {
-      showSnackbar('Halaman tersebut hanya dapat diakses oleh Pelayan', 'error');
-      setTimeout(() => navigate('/dashboard'), 4000);
-      return;
-    }
-    fetchOrders();
-  }, [user, authLoading, activeTab]);
 
   const fetchOrders = async () => {
     try {
@@ -83,6 +69,18 @@ const OrderList = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!user || (user.role !== 'Pelayan' && user.role !== 'Kasir')) {
+      showSnackbar('Halaman tersebut hanya dapat diakses oleh Pelayan dan Kasir', 'error');
+      const timer = setTimeout(() => navigate('/dashboard'), 4000);
+      return () => clearTimeout(timer);
+    }
+
+    fetchOrders();
+  }, [user, authLoading, activeTab]);
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
@@ -148,7 +146,7 @@ const OrderList = () => {
     line('--------------------------------------------');
 
     let subtotal = 0;
-    order.items.forEach(({ food, qty, status, price }) => {
+    (order.items || []).forEach(({ food, qty, status, price }) => {
       if (status === 'cancelled') return;
       const rowTotal = price * qty;
       subtotal += rowTotal;
@@ -303,10 +301,10 @@ const OrderList = () => {
                       Table {order.table?.table_number || 'N/A'}
                     </TableCell>
                     <TableCell>
-                      <Chip 
-                        label={order.status.toUpperCase()} 
+                      <Chip
+                        label={order.status.toUpperCase()}
                         size="small"
-                        sx={{ 
+                        sx={{
                           bgcolor: order.status === 'open' ? '#fef3c7' : '#f1f5f9',
                           color: order.status === 'open' ? '#92400e' : '#475569',
                           fontWeight: 'bold',
@@ -319,8 +317,17 @@ const OrderList = () => {
                     </TableCell>
                     <TableCell align="right">
                       {order.status === 'open' ? (
-                        <IconButton 
-                          onClick={() => navigate(`/orders/${order.table_id}`, { state: { from: '/orders' } })}
+                        <IconButton
+                          onClick={() => {
+                            if (user.role === 'Kasir') {
+                              const hasConfirmed = order.items?.some(item => item.status === 'confirmed');
+                              if (!hasConfirmed) {
+                                showSnackbar('Pesanan belum ada yang dikonfirmasi. Kasir hanya dapat mengakses pesanan yang siap bayar.', 'error');
+                                return;
+                              }
+                            }
+                            navigate(`/orders/${order.table_id}`, { state: { from: '/orders' } });
+                          }}
                           sx={{ color: '#64748b' }}
                           title="Edit Order"
                         >
@@ -328,14 +335,14 @@ const OrderList = () => {
                         </IconButton>
                       ) : (
                         <>
-                          <IconButton 
+                          <IconButton
                             onClick={() => navigate(`/orders/view/${order.id}`, { state: { from: '/orders' } })}
                             sx={{ color: '#64748b', mr: 1 }}
                             title="View Details"
                           >
                             <Visibility fontSize="small" />
                           </IconButton>
-                          <IconButton 
+                          <IconButton
                             onClick={() => handlePrintBill(order)}
                             sx={{ color: '#64748b' }}
                             title="Print Bill"
@@ -361,23 +368,6 @@ const OrderList = () => {
           </TableContainer>
         )}
       </Box>
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ top: { xs: 80, sm: 105 } }}
-      >
-        <Alert
-          onClose={handleCloseSnackbar}
-          severity={snackbar.severity}
-          variant="filled"
-          sx={{ minWidth: 250, borderRadius: 2, fontWeight: 600 }}
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 };

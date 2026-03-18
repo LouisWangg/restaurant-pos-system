@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -26,17 +26,16 @@ import {
   Alert,
   CircularProgress,
   ToggleButton,
-  ToggleButtonGroup,
-  Snackbar
+  ToggleButtonGroup
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useSnackbar } from '../context/SnackbarContext';
 import {
   Search,
   Add,
   Edit,
   Delete,
-  KeyboardArrowRight,
   RestaurantMenu,
   GridView as GridViewIcon,
   Fastfood as FastFoodIcon,
@@ -57,15 +56,15 @@ const FOOD_TYPES = [
 const FoodManagement = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
+  const { showSnackbar } = useSnackbar();
   const [foods, setFoods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Modal state
   const [openModal, setOpenModal] = useState(false);
-  const [currentFood, setCurrentFood] = useState(null); // null if adding
+  const [currentFood, setCurrentFood] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -74,38 +73,14 @@ const FoodManagement = () => {
   });
   const [formErrors, setFormErrors] = useState({});
 
-  // Delete modal state
   const [openDeleteModal, setOpenDeleteModal] = useState(false);
   const [foodToDelete, setFoodToDelete] = useState(null);
 
-  // Snackbar state
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  const showSnackbar = (message, severity = 'success') => setSnackbar({ open: true, message, severity });
-  const handleCloseSnackbar = () => setSnackbar(prev => ({ ...prev, open: false }));
-
-  useEffect(() => {
-    // Wait until auth is resolved before checking role
-    if (authLoading) return;
-
-    // Not logged in or wrong role
-    if (!user || user.role !== 'Pelayan') {
-      setSnackbar({
-        open: true,
-        message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
-        severity: 'error',
-      });
-      setTimeout(() => navigate('/dashboard'), 4000);
-      return;
-    }
-
-    fetchFoods();
-  }, [user, authLoading]);
-
-  const fetchFoods = async () => {
+  const fetchFoods = useCallback(async () => {
     try {
       setLoading(true);
       const data = await foodService.getFoods();
-      setFoods(data);
+      setFoods(data.data || data);
       setError(null);
     } catch (err) {
       console.error('Failed to fetch foods:', err);
@@ -113,7 +88,19 @@ const FoodManagement = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!user || user.role !== 'Pelayan') {
+      showSnackbar('Halaman tersebut hanya dapat diakses oleh Pelayan', 'error');
+      setTimeout(() => navigate('/dashboard'), 4000);
+      return;
+    }
+
+    fetchFoods();
+  }, [user, authLoading, fetchFoods, showSnackbar, navigate]);
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
@@ -129,14 +116,20 @@ const FoodManagement = () => {
     }
   };
 
-  const filteredFoods = foods.filter(food => {
-    const matchesTab = activeTab === 'all' || food.type === activeTab;
-    const matchesSearch = food.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      food.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      food.price?.toString().includes(searchQuery.toLowerCase()) ||
-      food.type?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesTab && matchesSearch;
-  });
+  const filteredFoods = useMemo(() => {
+    return foods.filter(food => {
+      const matchesTab = activeTab === 'all' || food.type === activeTab;
+      const q = searchQuery.toLowerCase();
+
+      const matchesSearch =
+        food.name?.toLowerCase().includes(q) ||
+        food.description?.toLowerCase().includes(q) ||
+        food.price?.toString().includes(q) ||
+        food.type?.toLowerCase().includes(q);
+
+      return matchesTab && matchesSearch;
+    });
+  }, [foods, activeTab, searchQuery]);
 
   const handleOpenModal = (food = null) => {
     if (food) {
@@ -164,23 +157,20 @@ const FoodManagement = () => {
     setOpenModal(false);
   };
 
+  const sanitizers = {
+    price: v => v.replace(/[^0-9]/g, ''),
+    name: v => v.replace(/[^a-zA-Z\s]/g, ''),
+    description: v => v.replace(/[^a-zA-Z\s.,&()/]/g, '')
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'price') {
-      // Only allow numbers
-      const cleaned = value.replace(/[^0-9]/g, '');
-      setFormData(prev => ({ ...prev, [name]: cleaned }));
-    } else if (name === 'name') {
-      // Only letters and spaces
-      const cleaned = value.replace(/[^a-zA-Z\s]/g, '');
-      setFormData(prev => ({ ...prev, [name]: cleaned }));
-    } else if (name === 'description') {
-      // No numbers, allow letters, spaces, and . , & ( ) /
-      const cleaned = value.replace(/[^a-zA-Z\s.,&()/]/g, '');
-      setFormData(prev => ({ ...prev, [name]: cleaned }));
-    } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
-    }
+
+    const cleaned = sanitizers[name]
+      ? sanitizers[name](value)
+      : value;
+
+    setFormData(prev => ({ ...prev, [name]: cleaned }));
   };
 
   const handleSubmit = async (e) => {
@@ -245,9 +235,6 @@ const FoodManagement = () => {
             <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
               Master Food
             </Typography>
-            {/* <Typography variant="body1" color="text.secondary">
-              Manage your restaurant menu items and categories
-            </Typography> */}
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             <ToggleButtonGroup
@@ -284,7 +271,6 @@ const FoodManagement = () => {
           </Box>
         </Box>
 
-        {/* Tabs / Categories */}
         <Paper elevation={0} sx={{ mb: 4, borderRadius: 3, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
           <Tabs
             value={activeTab}
@@ -310,7 +296,6 @@ const FoodManagement = () => {
           </Tabs>
         </Paper>
 
-        {/* Search and Add Button row */}
         <Box sx={{ display: 'flex', gap: 2, mb: 4, alignItems: 'center' }}>
           <TextField
             placeholder="Search menu items..."
@@ -341,7 +326,7 @@ const FoodManagement = () => {
             sx={{
               height: 48,
               minWidth: 200,
-              ml: 'auto', // Pushes the button to the absolute right
+              ml: 'auto',
               px: 3,
               borderRadius: 2,
               textTransform: 'none',
@@ -427,7 +412,7 @@ const FoodManagement = () => {
         )}
       </Box>
 
-      {/* Add/Edit Modal */}
+      {/* Modal Add/Edit */}
       <Dialog
         open={openModal}
         onClose={handleCloseModal}
@@ -516,7 +501,7 @@ const FoodManagement = () => {
         </form>
       </Dialog>
 
-      {/* Delete Confirmation Modal */}
+      {/* Modal Delete */}
       <Dialog
         open={openDeleteModal}
         onClose={() => setOpenDeleteModal(false)}
@@ -553,24 +538,6 @@ const FoodManagement = () => {
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* Snackbar Notification */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ top: { xs: 80, sm: 105 } }}
-      >
-        <Alert
-          onClose={handleCloseSnackbar}
-          severity={snackbar.severity}
-          variant="filled"
-          sx={{ minWidth: 250, borderRadius: 2, fontWeight: 600 }}
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 };

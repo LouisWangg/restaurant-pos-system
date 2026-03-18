@@ -3,11 +3,12 @@
 namespace App\Services;
 
 use App\Models\Food;
+use App\Services\OrderService;
 
 class FoodService
 {
     /**
-     * Get all foods ordered by specific type priority and name.
+     * Mendapatkan semua menu makanan berurutan berdasarkan prioritas tipe dan nama.
      */
     public function getAllFoods()
     {
@@ -23,7 +24,7 @@ class FoodService
     }
 
     /**
-     * Create a new food item.
+     * Membuat menu makanan baru.
      */
     public function createFood(array $data)
     {
@@ -31,16 +32,22 @@ class FoodService
     }
 
     /**
-     * Update an existing food item.
+     * Memperbarui menu makanan yang sudah ada.
      */
     public function updateFood(Food $food, array $data)
     {
+        $oldPrice = $food->price;
         $food->update($data);
+
+        if (isset($data['price']) && (float)$data['price'] !== (float)$oldPrice) {
+            app(OrderService::class)->syncFoodPrice($food->id, (float)$data['price']);
+        }
+
         return $food;
     }
 
     /**
-     * Delete a food item.
+     * Menghapus menu makanan.
      */
     public function deleteFood(Food $food)
     {

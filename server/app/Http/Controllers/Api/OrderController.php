@@ -82,8 +82,7 @@ class OrderController extends Controller
         try {
             $data = $request->all();
             $data['user_id'] = Auth::id();
-            
-            // Hitung total harga jika belum dilempar dari depan atau untuk validasi
+
             $totalPrice = 0;
             foreach ($request->items as $item) {
                 $totalPrice += $item['price'] * $item['qty'];
@@ -97,7 +96,6 @@ class OrderController extends Controller
                 'message' => 'Pesanan berhasil dibuat',
                 'data' => $order
             ], 201);
-
         } catch (\Exception $e) {
             return response()->json([
                 'status' => 'error',
@@ -107,7 +105,7 @@ class OrderController extends Controller
     }
 
     /**
-     * Update status item pesanan (misal: cancel)
+     * Update status item pesanan
      */
     public function updateItemStatus(Request $request, int $id): JsonResponse
     {

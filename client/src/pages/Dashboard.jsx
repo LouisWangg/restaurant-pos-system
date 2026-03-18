@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Container, Typography, ToggleButton, ToggleButtonGroup, Stack, CircularProgress, Snackbar, Alert } from '@mui/material';
+import { Box, Container, Typography, ToggleButton, ToggleButtonGroup, Stack, CircularProgress } from '@mui/material';
 import GridViewIcon from '@mui/icons-material/GridView';
 import FastFoodIcon from '@mui/icons-material/FastFood';
 import ListAltIcon from '@mui/icons-material/ListAlt';
@@ -9,18 +9,19 @@ import TableGrid from '../components/TableGrid';
 import QuickStats from '../components/QuickStats';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useSnackbar } from '../context/SnackbarContext';
 import tableService from '../services/tableService';
+import { TABLE_STATUS_DATA } from '../constants/tableStatus';
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
-  const [view, setView] = React.useState('floor');
+  const { showSnackbar } = useSnackbar();
+  const [view, setView] = useState('floor');
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'error' });
-  const handleCloseSnackbar = () => setSnackbar(prev => ({ ...prev, open: false }));
 
   const fetchTables = async () => {
     try {
@@ -39,34 +40,25 @@ const Dashboard = () => {
   useEffect(() => {
     fetchTables();
 
-    // Handle snackbar from navigation state
+    // Menampilkan notifikasi dari halaman lain
     if (location.state?.snackbar) {
-      setSnackbar(location.state.snackbar);
-      // Clear navigation state to prevent re-triggering on refresh
+      showSnackbar(location.state.snackbar.message, location.state.snackbar.severity);
       window.history.replaceState({}, document.title);
     }
-  }, [location]);
+  }, [location, showSnackbar]);
 
   const handleViewChange = (event, next) => {
     if (!next) return;
 
     if (next === 'food') {
       if (user?.role !== 'Pelayan') {
-        setSnackbar({
-          open: true,
-          message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
-          severity: 'error',
-        });
+        showSnackbar('Halaman tersebut hanya dapat diakses oleh Pelayan', 'error');
         return;
       }
       navigate('/foods');
     } else if (next === 'order') {
-      if (user?.role !== 'Pelayan') {
-        setSnackbar({
-          open: true,
-          message: 'Halaman tersebut hanya dapat diakses oleh Pelayan',
-          severity: 'error',
-        });
+      if (user?.role !== 'Pelayan' && user?.role !== 'Kasir') {
+        showSnackbar('Halaman tersebut hanya dapat diakses oleh Pelayan dan Kasir', 'error');
         return;
       }
       navigate('/orders');
@@ -75,7 +67,7 @@ const Dashboard = () => {
     }
   };
 
-  // Hitung statistik berdasarkan data meja
+  // Menghitung statistik berdasarkan data meja
   const getStats = () => {
     const counts = {
       available: 0,
@@ -90,12 +82,12 @@ const Dashboard = () => {
       }
     });
 
-    return [
-      { label: 'Available Tables', count: counts.available, color: '#22c55e', key: 'available' },
-      { label: 'Occupied Tables', count: counts.occupied, color: '#ef4444', key: 'occupied' },
-      { label: 'Reserved Tables', count: counts.reserved, color: '#f59e0b', key: 'reserved' },
-      { label: 'Inactive Tables', count: counts.inactive, color: '#64748b', key: 'inactive' },
-    ];
+    return Object.entries(TABLE_STATUS_DATA).map(([key, value]) => ({
+      label: value.statsLabel,
+      count: counts[key],
+      color: value.color,
+      key: key
+    }));
   };
 
   return (
@@ -120,7 +112,7 @@ const Dashboard = () => {
                 border: '1px solid',
                 borderColor: 'divider',
                 '&.Mui-selected': {
-                  bgcolor: 'slate.100',
+                  bgcolor: 'neutral.light',
                   color: 'primary.main',
                   fontWeight: 'bold'
                 }
@@ -153,31 +145,13 @@ const Dashboard = () => {
                   <Typography color="error">{error}</Typography>
                 </Box>
               ) : (
-                <TableGrid tables={tables} onTableUpdate={fetchTables} setSnackbar={setSnackbar} />
+                <TableGrid tables={tables} onTableUpdate={fetchTables} />
               )}
             </Box>
             <QuickStats stats={getStats()} />
           </Box>
         </Stack>
       </Container>
-
-      {/* Access Denied Snackbar */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ top: { xs: 80, sm: 105 } }}
-      >
-        <Alert
-          onClose={handleCloseSnackbar}
-          severity={snackbar.severity}
-          variant="filled"
-          sx={{ minWidth: 250, borderRadius: 2, fontWeight: 600 }}
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 };
